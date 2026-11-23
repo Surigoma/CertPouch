@@ -30,7 +30,7 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 | `certpouch dns sync` | Synchronize DNS zones |
 | `certpouch cert renew` | Renew certificates that are due |
 
-The `server` and `pull` commands require `--config PATH`. The remaining commands are planned. [Example client configuration](configs/client.example.yaml)
+The `server`, `pull`, and `status` commands require `--config PATH`. DNS sync and certificate renewal are planned. [Example client configuration](configs/client.example.yaml)
 
 ## Documentation and license
 

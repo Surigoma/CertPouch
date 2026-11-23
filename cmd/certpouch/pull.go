@@ -87,18 +87,25 @@ func applyTarget(ctx context.Context, remote *client.Client, target config.Targe
 		return item, err
 	}
 	item = plan[0]
-	if item.Action == "unchanged" {
-		return item, nil
-	}
 	for _, metadata := range inventory {
 		if metadata.Name != target.Name {
 			continue
 		}
-		bundle, err := remote.Fetch(ctx, metadata, target.Policy)
-		if err != nil {
-			return item, err
+		if item.Action != "unchanged" {
+			bundle, err := remote.Fetch(ctx, metadata, target.Policy)
+			if err != nil {
+				return item, err
+			}
+			if err := session.Install(ctx, metadata.Version, bundle, apply); err != nil {
+				return item, err
+			}
 		}
-		return item, session.Install(ctx, metadata.Version, bundle, apply)
+		if err := deployment.RecordSync(target.StateFile, deployment.SyncState{
+			Version: metadata.Version, Fingerprint: metadata.Fingerprint, SyncedAt: time.Now().UTC(),
+		}); err != nil {
+			return item, fmt.Errorf("record successful synchronization: %w", err)
+		}
+		return item, nil
 	}
 	return item, fmt.Errorf("selected certificate is missing")
 }

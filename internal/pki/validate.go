@@ -31,6 +31,20 @@ type Validated struct {
 	Fingerprint string
 }
 
+// DescribeLeaf parses public leaf metadata without asserting trust or validity.
+func DescribeLeaf(data []byte) (Validated, error) {
+	certs, err := parseCertificates(data)
+	if err != nil || len(certs) != 1 {
+		return Validated{}, fmt.Errorf("expected one PEM leaf certificate")
+	}
+	return describe(certs[0]), nil
+}
+
+func describe(leaf *x509.Certificate) Validated {
+	fingerprint := sha256.Sum256(leaf.Raw)
+	return Validated{Leaf: leaf, Fingerprint: hex.EncodeToString(fingerprint[:])}
+}
+
 // Validate checks the bundle against independently configured trust and names.
 func Validate(bundle Bundle, policy Policy, now time.Time) (Validated, error) {
 	if policy.Roots == nil || policy.Issuer == nil || now.IsZero() ||
@@ -98,8 +112,7 @@ func Validate(bundle Bundle, policy Policy, now time.Time) (Validated, error) {
 			matches = matches && intermediate.Equal(path[i+1])
 		}
 		if matches {
-			fingerprint := sha256.Sum256(leaf.Raw)
-			return Validated{Leaf: leaf, Fingerprint: hex.EncodeToString(fingerprint[:])}, nil
+			return describe(leaf), nil
 		}
 	}
 	return Validated{}, fmt.Errorf("verified chain does not match the supplied intermediate chain and issuer")

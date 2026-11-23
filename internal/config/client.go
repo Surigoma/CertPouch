@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
 	"path/filepath"
@@ -24,6 +25,7 @@ type Target struct {
 	Owner, Group                    string
 	CertificateMode, PrivateKeyMode string
 	Unit, Action                    string
+	StateFile                       string
 }
 
 type pullDocument struct {
@@ -59,6 +61,14 @@ type pullCertificate struct {
 }
 
 func LoadClient(path string) (Client, error) {
+	return loadClient(path, true)
+}
+
+func LoadLocalClient(path string) (Client, error) {
+	return loadClient(path, false)
+}
+
+func loadClient(path string, network bool) (Client, error) {
 	body, err := readFile(path, false, 1<<20)
 	if err != nil {
 		return Client{}, fmt.Errorf("read client config: %w", err)
@@ -67,26 +77,27 @@ func LoadClient(path string) (Client, error) {
 	if err := decodeYAML(body, &doc); err != nil {
 		return Client{}, err
 	}
-	for _, value := range []string{doc.Server.CAFile, doc.Client.TokenFile, doc.Validation.TrustCAFile} {
-		if !filepath.IsAbs(value) {
-			return Client{}, fmt.Errorf("client CA and token paths must be absolute")
-		}
-	}
-	tlsRoots, err := loadClientRoots(doc.Server.CAFile)
-	if err != nil {
-		return Client{}, fmt.Errorf("load TLS CA: %w", err)
+	if !filepath.IsAbs(doc.Validation.TrustCAFile) || (doc.Client.StateDir != "" && !filepath.IsAbs(doc.Client.StateDir)) {
+		return Client{}, fmt.Errorf("validation CA and state paths must be absolute")
 	}
 	roots, err := loadClientRoots(doc.Validation.TrustCAFile)
 	if err != nil {
 		return Client{}, fmt.Errorf("load certificate validation CA: %w", err)
 	}
-	token, err := readFile(doc.Client.TokenFile, true, 1026)
-	if err != nil {
-		return Client{}, fmt.Errorf("read client token file: %w", err)
-	}
-	result := Client{
-		URL: doc.Server.URL, ID: doc.Client.ID, TLSRoots: tlsRoots,
-		Token: strings.TrimSuffix(strings.TrimSuffix(string(token), "\n"), "\r"),
+	result := Client{URL: doc.Server.URL, ID: doc.Client.ID}
+	if network {
+		if !filepath.IsAbs(doc.Server.CAFile) || !filepath.IsAbs(doc.Client.TokenFile) {
+			return Client{}, fmt.Errorf("TLS CA and token paths must be absolute")
+		}
+		result.TLSRoots, err = loadClientRoots(doc.Server.CAFile)
+		if err != nil {
+			return Client{}, fmt.Errorf("load TLS CA: %w", err)
+		}
+		token, err := readFile(doc.Client.TokenFile, true, 1026)
+		if err != nil {
+			return Client{}, fmt.Errorf("read client token file: %w", err)
+		}
+		result.Token = strings.TrimSuffix(strings.TrimSuffix(string(token), "\n"), "\r")
 	}
 	seen := make(map[string]bool)
 	for i, target := range doc.Certificates {
@@ -107,11 +118,17 @@ func LoadClient(path string) (Client, error) {
 			return Client{}, fmt.Errorf("certificates[%d]: %w", i, err)
 		}
 		seen[target.Name] = true
+		stateFile := filepath.Join(dest, ".sync.json")
+		if doc.Client.StateDir != "" {
+			digest := sha256.Sum256([]byte(target.Name + "\x00" + dest))
+			stateFile = filepath.Join(doc.Client.StateDir, fmt.Sprintf("%x.json", digest))
+		}
 		result.Targets = append(result.Targets, Target{
 			Name: target.Name, Destination: dest, Policy: policy,
 			Owner: target.Owner, Group: target.Group,
 			CertificateMode: target.CertificateMode, PrivateKeyMode: target.PrivateKeyMode,
 			Unit: target.Service.Unit, Action: target.Service.Action,
+			StateFile: stateFile,
 		})
 	}
 	if len(result.Targets) == 0 {

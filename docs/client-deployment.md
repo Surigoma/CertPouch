@@ -5,6 +5,7 @@
 ```sh
 certpouch pull --dry-run --config /etc/certpouch/client.yaml
 certpouch pull --config /etc/certpouch/client.yaml
+certpouch status --config /etc/certpouch/client.yaml
 ```
 
 サービスは配置先の `current/fullchain.pem` と `current/private-key.pem` を参照する。初回導入前に、既存サービス設定と証明書を退避する。初回配置で切り戻し先がない場合に備え、元のサービス設定と参照先へ戻せるようにする。
@@ -14,3 +15,7 @@ certpouch pull --config /etc/certpouch/client.yaml
 サービス操作に失敗すると、以前の世代がある場合は `current` を元に戻してサービスを再反映する。初回失敗、切り戻し失敗、異常終了で残る `.pull-lock/recovery` には、旧世代と新世代への相対パスが1行ずつ記録される。Pullが実行中でないことを確認し、`current`、サービスの状態、TLS応答を調べてから復旧する。初回失敗では退避した設定を使う。再試行する場合は、失敗世代が使われていないことを確認して管理領域から退避する。正常なサービス状態を確認してから復旧記録とロックを取り除く。
 
 複数の証明書は個別に処理する。途中で失敗した場合、それ以前に適用した更新は維持される。
+
+`status` はサーバーに接続せず、配置世代、Subject、Issuer、SAN、有効期限、フィンガープリント、最終同期時刻をJSONで表示する。未配置、期限切れ、検証失敗、復旧記録などがあれば終了コード1を返す。`recovery_pending` は復旧記録がある状態を示すため、手動復旧の前にPullが終了していることを確認する。
+
+成功した通常のPullは、変更がない場合も照合済みの世代・フィンガープリント・時刻を記録する。既定では配置先の `.sync.json` に保存する。`client.state_dir` を指定する場合は実行ユーザーが書き込めるディレクトリを事前に作成する。プレビューは記録を更新しない。

@@ -15,6 +15,7 @@ import (
 )
 
 var versionPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var fingerPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Options struct {
 	Destination                     string

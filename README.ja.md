@@ -30,7 +30,7 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 | `certpouch dns sync` | DNSゾーンを同期 |
 | `certpouch cert renew` | 更新時期を迎えた証明書を更新 |
 
-`server` と `pull` には `--config PATH` が必要です。ほかのコマンドは実装予定です。[クライアント設定例](configs/client.example.yaml)
+`server`、`pull`、`status` には `--config PATH` が必要です。DNS同期と証明書更新は実装予定です。[クライアント設定例](configs/client.example.yaml)
 
 ## 仕様とライセンス
 
