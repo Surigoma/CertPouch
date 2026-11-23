@@ -15,6 +15,29 @@ Phase 1でもクライアント資格情報を無効化できなければなら�
 
 既存環境にはPython、Google Sheets、NSD、OpenSSL、中間CA、中央保管された証明書と秘密鍵がある。Phase 1の配布では既存のゾーン生成処理が出力するGoogle Sheetsのスナップショットを接続元の認可に使える。[DNS台帳による接続元制御](../dns-inventory.md)を参照。本番インフラを変更せず、内部情報や資格情報をコミットしない。
 
+## 全体構成
+
+DNS台帳はゾーン生成に使い、台帳モードでは配布時の接続元認可にも使う。既存CAで署名した証明書は検証後に公開ストアへ保存し、各ホストがHTTPSで取得する。
+
+```mermaid
+flowchart LR
+    Sheets["Google Sheets"] --> Fetch["dns fetch"]
+    Fetch --> Cache["検証済み台帳キャッシュ"]
+    Cache --> Sync["dns sync"]
+    CSV["CSV"] --> Sync
+    Sync --> Apply["dns apply"]
+    Apply --> NSD["NSD"]
+
+    CA["既存のプライベートCA"] --> Renew["cert renew（署名・検証）"]
+    Renew --> Store["証明書の公開ストア"]
+    Publish["cert publish（既存証明書を検証）"] --> Store
+    Store --> Server["HTTPS配布サーバー"]
+    Cache -.->|台帳モードで接続元IPを照合| Server
+    Server -->|"認証・認可済みの配布"| Pull["各ホストの certpouch pull"]
+    Pull --> Active["配置先の current"]
+    Active --> Service["利用サービス（Keycloakなど）"]
+```
+
 ## パッケージ責務
 
 原仕様の構造に従い、実装が必要になった段階で追加する。

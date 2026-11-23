@@ -37,6 +37,25 @@ Sheetsの列構成、認証方式、空行・削除表現、対象RR型、SOA/NS
 
 ### 詳細化案：適用手順
 
+現行のCLIでは候補生成とNSDへの適用を別のコマンドで行う。図はNSDに初期登録した後の更新を示す。
+
+```mermaid
+flowchart TD
+    Input["検証済み台帳キャッシュ、またはCSV"] --> Sync["dns sync --stage-dir<br/>正引き・IPv4逆引き候補を生成"]
+    Sync --> Check["nsd-checkzone"]
+    Check -->|失敗| Stop["現行ゾーンのまま終了"]
+    Check -->|成功| Diff["必要に応じて dns diff で確認"]
+    Diff --> Apply["dns apply<br/>排他取得・候補と現行を再検証"]
+    Apply -->|拒否、または差分なし| Stop
+    Apply -->|適用可能な変更あり| Reload["世代切り替え・変更ゾーンをreload"]
+    Reload --> Confirm{"配信中のSOA serialが一致"}
+    Reload -->|reload失敗| Rollback
+    Confirm -->|成功| Done["更新完了"]
+    Confirm -->|失敗| Rollback["旧レコードをより新しいserialで再適用"]
+    Rollback -->|復旧成功| Failed["更新失敗を報告"]
+    Rollback -->|復旧失敗| Manual["復旧記録を残し手動確認へ"]
+```
+
 1. 同期排他を取得し、在庫の一貫したスナップショットを取得する。
 2. レコード形式、重複、CNAME競合、管理ゾーン境界を検証する。
 3. 正引き・逆引きと新serialを一時領域に生成する。

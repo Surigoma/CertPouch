@@ -51,6 +51,24 @@ SANのワイルドカード許可範囲、追加SANの許容、RSA以外の鍵�
 
 ## 詳細化案：Pull状態遷移
 
+```mermaid
+flowchart TD
+    Start["設定・未完了の配置を確認"] --> Check["配布元の一覧とローカルの実ファイルを比較"]
+    Check -->|比較・検証エラー| Stop["エラーで終了"]
+    Check -->|同一世代で検証済み| Record["成功世代と同期時刻を記録"]
+    Check -->|新規または更新| Fetch["世代を指定して取得し、証明書・鍵を検証"]
+    Fetch -->|検証失敗| Stop
+    Fetch -->|検証成功| Stage["世代を保存し、復旧記録を作成"]
+    Stage --> Switch["current を原子的に切り替える"]
+    Switch --> Apply["systemd 操作と稼働確認<br/>設定があればTLSも照合"]
+    Apply -->|成功| Record
+    Apply -->|失敗| Prior{"旧世代があるか"}
+    Prior -->|ある| Rollback["旧世代へ戻して再反映"]
+    Prior -->|ない| Manual["current を除去し手動復旧へ"]
+    Rollback -->|復旧成功| Stop
+    Rollback -->|復旧失敗| Inspect["復旧記録を残し手動確認へ"]
+```
+
 | 状態 | 処理 | 失敗時 |
 | --- | --- | --- |
 | 準備 | 設定、排他、前回未完了状態の確認 | 現行世代に触れず終了 |
