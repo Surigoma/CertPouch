@@ -14,6 +14,21 @@ certpouch status --config /etc/certpouch/client.yaml
 
 通常のPullは、検証済みのファイルを世代ディレクトリに保存し、`current` を切り替えてから、設定した `reload` または `restart` を実行する。systemdの稼働状態を確認した後、運用側でもTLS接続を試して、新しい証明書が実際に使われていることを確認する。
 
+実際に配信された証明書まで自動で確認する場合は、証明書ごとの `service.verify_tls` を使う。プロキシ経由ではなく、対象インスタンスのTLSポートを指定する。例の `server_name` は証明書のSANに含める。
+
+```yaml
+service:
+  unit: "keycloak.service"
+  action: "restart"
+  verify_tls:
+    address: "127.0.0.1:8443"
+    server_name: "sso.example.internal"
+```
+
+Pullは `validation.trust_ca_file` と指定名でTLSを検証し、相手が返したリーフと現在の世代のSHA-256フィンガープリントを照合する。15秒以内に一致しなければ配置失敗として切り戻す。旧世代の再反映と異常終了後の復旧でも同じ照合を行う。動作確認には実際のサービス起動時間も含める。
+
+Keycloakでは `https-certificate-file` に `current/fullchain.pem`、`https-certificate-key-file` に `current/private-key.pem` を指定できる。例はサービス再起動で反映する構成。Keycloakの定期的な証明書再読み込みを待つ運用は、Pull直後の確認とは分けて検証する。[Keycloak公式のTLS設定](https://www.keycloak.org/server/enabletls)
+
 サービス操作に失敗すると、以前の世代がある場合は `current` を元に戻してサービスを再反映する。異常終了後の次回Pullは、サーバーへ接続する前に `.pull-lock/recovery` を調べる。記録と旧世代のファイルを確認できれば、旧世代へ切り戻してサービスを再反映してから同期を続ける。プレビューでは復旧処理は行わない。
 
 旧世代がない初回失敗、記録の破損、世代の不一致、再反映失敗は手動復旧が必要。記録には旧世代と新世代への相対パスが1行ずつ入る。Pullが実行中でないことを確認し、`current`、サービスの状態、TLS応答を調べる。初回失敗では退避した設定を使う。再試行する場合は、失敗世代が使われていないことを確認して管理領域から退避する。正常なサービス状態を確認してから復旧記録と `.pull-lock` を取り除く。

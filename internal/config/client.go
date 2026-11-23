@@ -26,6 +26,7 @@ type Target struct {
 	CertificateMode, PrivateKeyMode string
 	Unit, Action                    string
 	StateFile                       string
+	TLSAddress, TLSServerName       string
 }
 
 type pullDocument struct {
@@ -55,8 +56,12 @@ type pullCertificate struct {
 	CertificateMode string   `yaml:"certificate_mode"`
 	PrivateKeyMode  string   `yaml:"private_key_mode"`
 	Service         struct {
-		Unit   string `yaml:"unit"`
-		Action string `yaml:"action"`
+		Unit      string `yaml:"unit"`
+		Action    string `yaml:"action"`
+		VerifyTLS *struct {
+			Address    string `yaml:"address"`
+			ServerName string `yaml:"server_name"`
+		} `yaml:"verify_tls"`
 	} `yaml:"service"`
 }
 
@@ -123,13 +128,20 @@ func loadClient(path string, network bool) (Client, error) {
 			digest := sha256.Sum256([]byte(target.Name + "\x00" + dest))
 			stateFile = filepath.Join(doc.Client.StateDir, fmt.Sprintf("%x.json", digest))
 		}
-		result.Targets = append(result.Targets, Target{
+		entry := Target{
 			Name: target.Name, Destination: dest, Policy: policy,
 			Owner: target.Owner, Group: target.Group,
 			CertificateMode: target.CertificateMode, PrivateKeyMode: target.PrivateKeyMode,
 			Unit: target.Service.Unit, Action: target.Service.Action,
 			StateFile: stateFile,
-		})
+		}
+		if probe := target.Service.VerifyTLS; probe != nil {
+			if probe.Address == "" || probe.ServerName == "" {
+				return Client{}, fmt.Errorf("certificates[%d].service.verify_tls requires address and server_name", i)
+			}
+			entry.TLSAddress, entry.TLSServerName = probe.Address, probe.ServerName
+		}
+		result.Targets = append(result.Targets, entry)
 	}
 	if len(result.Targets) == 0 {
 		return Client{}, fmt.Errorf("configure at least one certificate")

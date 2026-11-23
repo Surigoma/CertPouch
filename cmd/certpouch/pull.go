@@ -14,6 +14,8 @@ import (
 	"github.com/Surigoma/CertPouch/internal/config"
 	"github.com/Surigoma/CertPouch/internal/deployment"
 	"github.com/Surigoma/CertPouch/internal/distribution"
+	"github.com/Surigoma/CertPouch/internal/pki"
+	"github.com/Surigoma/CertPouch/internal/storage"
 )
 
 func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -132,6 +134,30 @@ func beginTarget(ctx context.Context, target config.Target) (*deployment.Session
 		target.CertificateMode, target.PrivateKeyMode, target.Unit, target.Action)
 	if err != nil {
 		return nil, nil, err
+	}
+	if target.TLSAddress != "" {
+		probe, err := deployment.NewTLSProbe(target.TLSAddress, target.TLSServerName, target.Policy.Roots)
+		if err != nil {
+			return nil, nil, err
+		}
+		systemd := apply
+		apply = func(ctx context.Context) error {
+			_, bundle, present, err := storage.LoadDeployment(target.Destination)
+			if err != nil {
+				return fmt.Errorf("load active generation for TLS verification: %w", err)
+			}
+			if !present {
+				return fmt.Errorf("active generation is missing for TLS verification")
+			}
+			leaf, err := pki.DescribeLeaf(bundle.CertificatePEM)
+			if err != nil {
+				return err
+			}
+			if err := systemd(ctx); err != nil {
+				return err
+			}
+			return probe.Wait(ctx, leaf.Fingerprint)
+		}
 	}
 	session, err := deployment.BeginRecovering(ctx, opts, apply)
 	return session, apply, err
