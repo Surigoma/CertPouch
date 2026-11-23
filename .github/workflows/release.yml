@@ -24,6 +24,7 @@ jobs:
     outputs:
       created: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
+      commit: ${{ steps.release.outputs.sha }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
@@ -34,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.target.outputs.tag }}
+      commit: ${{ steps.verify.outputs.commit }}
     steps:
       - name: Select build ref
         id: target
@@ -64,7 +66,17 @@ jobs:
       - name: Package Linux binaries
         run: bash scripts/package-release.sh
       - name: Verify packaged binaries
-        run: bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"
+        id: verify
+        env:
+          RELEASE_COMMIT: ${{ needs.release-please.outputs.commit }}
+        run: |
+          commit=$(git rev-parse HEAD)
+          if [[ -n "$RELEASE_COMMIT" && "$commit" != "$RELEASE_COMMIT" ]]; then
+            echo "::error::Checked-out tag differs from the commit reported by Release Please"
+            exit 1
+          fi
+          bash scripts/verify-release.sh dist "$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: certpouch-release
@@ -79,12 +91,21 @@ jobs:
       actions: read
       contents: write
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/tags/${{ needs.package.outputs.tag }}
+          persist-credentials: false
       - name: Attach verified artifacts to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.package.outputs.tag }}
+          VERIFIED_COMMIT: ${{ needs.package.outputs.commit }}
         run: |
+          if [[ "$(git rev-parse HEAD)" != "$VERIFIED_COMMIT" ]]; then
+            echo "::error::Tag $RELEASE_TAG differs from the commit used to verify the artifacts"
+            exit 1
+          fi
           if [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" != "true" ]]; then
             echo "::error::Release $RELEASE_TAG must exist and be a draft"
             exit 1

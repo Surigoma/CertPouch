@@ -4,7 +4,7 @@
 
 Go 1.26.11以降を用意し、リリース対象コミットをきれいなチェックアウトで開く。LinuxまたはGit Bashで `bash scripts/package-release.sh` を実行すると、`dist` にLinux amd64・arm64のtar.gzと `SHA256SUMS` が生成される。バイナリと一緒に、同じコミットのREADME、設定例、systemdユニット例、運用文書、ブランド資産を収録する。出力先はスクリプトの第1引数で指定できる。
 
-`bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"` は、両アーカイブのSHA-256と、内部バイナリのOS・アーキテクチャ・コミットID・未コミット変更の有無を検証する。Linux amd64では、アーカイブから取り出したamd64版で `server --help` も実行する。GitHub Actionsはこの検証に通った成果物を下書きへ添付する。
+`bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"` は、両アーカイブのSHA-256と、内部バイナリのOS・アーキテクチャ・コミットID・未コミット変更の有無を検証する。Linux amd64では、アーカイブから取り出したamd64版で `server --help` も実行する。GitHub Actionsは添付ジョブでタグを取得し直し、検証済みのコミットと一致した場合に成果物を下書きへ添付する。
 
 GitHub Actionsの `Verify` はmainへのpushとPull Requestで `go vet` とraceテストを実行する。
 
