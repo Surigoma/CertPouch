@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 128" role="img" aria-label="CertPouch">
+  <path fill="#A8C7D2" d="M15 42h98l-7 58c-1 10-9 17-19 17H41c-10 0-18-7-19-17z"/>
+  <path fill="#F4F7F7" stroke="#142D40" stroke-width="5" d="M40 14h35l15 15v47H40z"/>
+  <path fill="#A8C7D2" d="M75 17v14h14z"/>
+  <path fill="#39B8A5" d="M15 66c16 4 31 6 49 6s33-2 49-6l-6 34c-2 10-10 17-20 17H41c-10 0-18-7-20-17z"/>
+  <path fill="none" stroke="#142D40" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="m53 47 8 8 15-15"/>
+  <text x="140" y="83" fill="#F4F7F7" font-family="Inter, system-ui, sans-serif" font-size="62" font-weight="600">CertPouch</text>
+</svg>

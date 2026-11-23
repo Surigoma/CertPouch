@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="CertPouch">
+  <rect width="1200" height="630" fill="#F4F7F7"/>
+  <circle cx="1160" cy="113" r="240" fill="#A8C7D2" opacity=".35"/>
+  <g transform="translate(82 138) scale(2.6)"><path fill="#142D40" d="M15 42h98l-7 58c-1 10-9 17-19 17H41c-10 0-18-7-19-17z"/>
+  <path fill="#F4F7F7" stroke="#142D40" stroke-width="5" d="M40 14h35l15 15v47H40z"/>
+  <path fill="#A8C7D2" d="M75 17v14h14z"/>
+  <path fill="#39B8A5" d="M15 66c16 4 31 6 49 6s33-2 49-6l-6 34c-2 10-10 17-20 17H41c-10 0-18-7-20-17z"/>
+  <path fill="none" stroke="#142D40" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="m53 47 8 8 15-15"/></g>
+  <text x="450" y="300" fill="#142D40" font-family="Inter, system-ui, sans-serif" font-size="92" font-weight="600">CertPouch</text>
+  <text x="454" y="366" fill="#263746" font-family="Inter, system-ui, sans-serif" font-size="29">Private certificates, delivered simply.</text>
+</svg>
