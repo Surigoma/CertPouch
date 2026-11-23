@@ -19,7 +19,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +108,7 @@ clients:
 	action := "reload"
 	logPath := filepath.Join(base, "systemctl.log")
 	tlsVerification := ""
+	permissions := ""
 	consumerAddress := ""
 	staleReload := filepath.Join(base, "stale-reload")
 	if useKeycloak {
@@ -141,7 +144,41 @@ touch -- "$2"
 			"ExecStartPre=/bin/sh "+strings.Join([]string{preStart, staleReload, logPath}, " "))
 		tlsVerification = fmt.Sprintf("\n      verify_tls: {address: %q, server_name: web.example.internal, timeout: 2m}", consumerAddress)
 	} else if realSystemd {
-		served := filepath.Join(base, "served")
+		serviceUser, err := user.Lookup("nobody")
+		if err != nil {
+			t.Fatal(err)
+		}
+		serviceGroup, err := user.LookupGroupId(serviceUser.Gid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid, err := strconv.Atoi(serviceUser.Uid)
+		if err != nil || uid <= 0 {
+			t.Fatalf("invalid test service UID %q: %v", serviceUser.Uid, err)
+		}
+		gid, err := strconv.Atoi(serviceGroup.Gid)
+		if err != nil || gid <= 0 {
+			t.Fatalf("invalid test service GID %q: %v", serviceGroup.Gid, err)
+		}
+		for _, path := range []string{filepath.Dir(base), base} {
+			if err := os.Chmod(path, 0711); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chown(destination, -1, gid); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(destination, 0750); err != nil {
+			t.Fatal(err)
+		}
+		serviceState := mkdir("consumer")
+		if err := os.Chown(serviceState, uid, gid); err != nil {
+			t.Fatal(err)
+		}
+		served := filepath.Join(serviceState, "served")
+		staleReload = filepath.Join(serviceState, "stale-reload")
+		logPath = filepath.Join(serviceState, "systemctl.log")
+		permissions = fmt.Sprintf("\n    group: %q\n    private_key_mode: \"0640\"", serviceGroup.Name)
 		consumer, err := net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
@@ -170,16 +207,26 @@ if [ -f "$1" ]; then
   rm -- "$1"
   exit 0
 fi
-ln -s "$(readlink -f -- "$2/current")" "$3.next"
+generation=$(readlink -f -- "$2/current")
+test "$(stat -c %a -- "$generation/private-key.pem")" = 640
+test ! -w "$generation/private-key.pem"
+test ! -w "$generation"
+head -c 1 -- "$generation/private-key.pem" >/dev/null
+head -c 1 -- "$generation/fullchain.pem" >/dev/null
+ln -s "$generation" "$3.next"
 mv -Tf -- "$3.next" "$3"
 touch -- "$4"
 `))
+		if err := os.Chmod(reload, 0644); err != nil {
+			t.Fatal(err)
+		}
 		suffix := make([]byte, 8)
 		if _, err := rand.Read(suffix); err != nil {
 			t.Fatal(err)
 		}
 		unit = fmt.Sprintf("certpouch-workflow-%x.service", suffix)
 		cmd := exec.Command("systemd-run", "--unit="+unit, "--collect", "--property=Type=exec",
+			"--property=User="+serviceUser.Username, "--property=Group="+serviceGroup.Name,
 			"--property=ExecReload=/bin/sh "+strings.Join([]string{reload, staleReload, destination, served, logPath}, " "),
 			"/usr/bin/sleep", "infinity")
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -206,11 +253,11 @@ certificates:
   - name: web.example.internal
     destination: %q
     expected_dns_sans: [web.example.internal]
-    issuer_certificate: %q
+    issuer_certificate: %q%s
     service:
       unit: %q
       action: %s%s
-`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, unit, action, tlsVerification)))
+`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, permissions, unit, action, tlsVerification)))
 	var output, diagnostic bytes.Buffer
 	publish := func(cert, key string) string {
 		t.Helper()
@@ -361,7 +408,9 @@ certificates:
 	func() {
 		previousReload := firstReload
 		if realSystemd {
-			write("stale-reload", nil)
+			if err := os.WriteFile(staleReload, nil, 0600); err != nil {
+				t.Fatal(err)
+			}
 			output.Reset()
 			diagnostic.Reset()
 			expectedFailure := "different leaf certificate"
