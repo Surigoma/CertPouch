@@ -43,7 +43,9 @@ Phase 1でもクライアント資格情報を無効化できなければなら�
 | `pull --config PATH` | 認証、差分取得、検証、配置、reload、失敗時復旧 | 1 |
 | `pull --dry-run --config PATH` | 更新予定を表示 | 1 |
 | `status --config PATH` | 証明書、SAN、発行者、期限、fingerprint、最終同期、配置状態を表示 | 1 |
-| `dns sync --config PATH` | 在庫からゾーンを生成・検証・適用 | 2 |
+| `dns fetch --config PATH` | Sheetsから台帳を取得・検証し、キャッシュを更新 | 2 |
+| `dns sync --config PATH` | 在庫からゾーンを生成し、プレビューまたは検証済み候補を出力 | 2 |
+| `dns apply --candidate PATH --zone-dir PATH` | 検証済み候補をNSDに適用し、配信されたserialを確認 | 2 |
 | `cert renew --config PATH` | 更新対象の発行・検証・公開 | 3 |
 
 ### 詳細化案
@@ -62,4 +64,4 @@ Phase 1でもクライアント資格情報を無効化できなければなら�
 
 自動ルートCA生成、CA秘密鍵のクライアント配布、サーバー応答からの任意コマンド実行は認めない。
 
-Goバージョン、module path、YAMLライブラリ、対応Linuxディストリビューションは未決。Phase 1の配置対象はLinux/systemdを前提とする詳細化案であり、Windowsでのサービス配置は対象に含めない。
+Goの最低バージョン、module path、YAMLライブラリは `go.mod` を参照する。サービス配置はLinux/systemdを対象とする。正式な対応Linuxディストリビューションは未決。
