@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func (s *Session) recover(ctx context.Context, apply func(context.Context) error) error {
@@ -54,7 +53,7 @@ func (s *Session) recover(ctx context.Context, apply func(context.Context) error
 	if err := switchCurrent(dest, s.lock, old); err != nil {
 		return err
 	}
-	restore, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	restore, cancel := s.recoveryContext(ctx)
 	defer cancel()
 	if err := apply(restore); err != nil {
 		return fmt.Errorf("reapply previous generation: %w", err)

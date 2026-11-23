@@ -23,11 +23,19 @@ service:
   verify_tls:
     address: "127.0.0.1:8443"
     server_name: "sso.example.internal"
+    timeout: "60s"
 ```
 
-Pullは `validation.trust_ca_file` と指定名でTLSを検証し、相手が返したリーフと現在の世代のSHA-256フィンガープリントを照合する。15秒以内に一致しなければ配置失敗として切り戻す。旧世代の再反映と異常終了後の復旧でも同じ照合を行う。動作確認には実際のサービス起動時間も含める。
+Pullは `validation.trust_ca_file` と指定名でTLSを検証し、相手が返したリーフと現在の世代のSHA-256フィンガープリントを照合する。systemdの操作完了後、`timeout` の範囲で照合を繰り返し、一致しなければ配置失敗として切り戻す。既定値は15秒で、1秒から2分まで指定できる。旧世代の再反映と異常終了後の復旧でも同じ設定を使う。
 
 Keycloakでは `https-certificate-file` に `current/fullchain.pem`、`https-certificate-key-file` に `current/private-key.pem` を指定できる。例はサービス再起動で反映する構成。Keycloakの定期的な証明書再読み込みを待つ運用は、Pull直後の確認とは分けて検証する。[Keycloak公式のTLS設定](https://www.keycloak.org/server/enabletls)
+
+Linuxでは、展開した検証専用のKeycloakと対応するJavaを使い、初回配置・更新・切り戻しを再現できる。テストはループバックとインメモリDBを使用し、Keycloakを起動する。
+
+```sh
+CERTPOUCH_TEST_KEYCLOAK_HOME=/path/to/disposable/keycloak \
+  go test ./cmd/certpouch -run '^TestKeycloakCertificateDeployment$' -v -count=1
+```
 
 サービス操作に失敗すると、以前の世代がある場合は `current` を元に戻してサービスを再反映する。異常終了後の次回Pullは、サーバーへ接続する前に `.pull-lock/recovery` を調べる。記録と旧世代のファイルを確認できれば、旧世代へ切り戻してサービスを再反映してから同期を続ける。プレビューでは復旧処理は行わない。
 

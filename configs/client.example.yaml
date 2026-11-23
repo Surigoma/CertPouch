@@ -18,3 +18,8 @@ certificates:
     service:
       unit: "nginx.service"
       action: "reload"
+      # Optionally verify the leaf certificate presented by the service.
+      # verify_tls:
+      #   address: "127.0.0.1:443"
+      #   server_name: "web.example.internal"
+      #   timeout: "15s"

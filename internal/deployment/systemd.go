@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const SystemdTimeout = 30 * time.Second
+
 var serviceUnit = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$`)
 
 func Configure(destination, owner, group, publicMode, keyMode, unit, action string) (Options, func(context.Context) error, error) {
@@ -55,7 +57,7 @@ func Configure(destination, owner, group, publicMode, keyMode, unit, action stri
 	}
 	options := Options{Destination: destination, UID: uid, GID: gid, CertificateMode: certMode, PrivateKeyMode: privateMode}
 	apply := func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, SystemdTimeout)
 		defer cancel()
 		if err := exec.CommandContext(ctx, "systemctl", action, "--", unit).Run(); err != nil {
 			return fmt.Errorf("systemctl %s %s: %w", action, unit, err)

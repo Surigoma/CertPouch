@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
@@ -29,6 +30,7 @@ type Target struct {
 	Unit, Action                    string
 	StateFile                       string
 	TLSAddress, TLSServerName       string
+	TLSVerifyTimeout                time.Duration
 }
 
 type pullDocument struct {
@@ -65,6 +67,7 @@ type pullCertificate struct {
 		VerifyTLS *struct {
 			Address    string `yaml:"address"`
 			ServerName string `yaml:"server_name"`
+			Timeout    string `yaml:"timeout"`
 		} `yaml:"verify_tls"`
 	} `yaml:"service"`
 }
@@ -150,6 +153,13 @@ func loadClient(path string, network bool) (Client, error) {
 				return Client{}, fmt.Errorf("certificates[%d].service.verify_tls requires address and server_name", i)
 			}
 			entry.TLSAddress, entry.TLSServerName = probe.Address, probe.ServerName
+			if probe.Timeout != "" {
+				timeout, err := time.ParseDuration(probe.Timeout)
+				if err != nil || timeout < time.Second || timeout > 2*time.Minute {
+					return Client{}, fmt.Errorf("certificates[%d].service.verify_tls.timeout must be between 1s and 2m", i)
+				}
+				entry.TLSVerifyTimeout = timeout
+			}
 		}
 		result.Targets = append(result.Targets, entry)
 	}

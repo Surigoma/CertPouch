@@ -136,10 +136,15 @@ func beginTarget(ctx context.Context, target config.Target) (*deployment.Session
 		return nil, nil, err
 	}
 	if target.TLSAddress != "" {
-		probe, err := deployment.NewTLSProbe(target.TLSAddress, target.TLSServerName, target.Policy.Roots)
+		timeout := target.TLSVerifyTimeout
+		if timeout == 0 {
+			timeout = deployment.DefaultTLSProbeTimeout
+		}
+		probe, err := deployment.NewTLSProbe(target.TLSAddress, target.TLSServerName, target.Policy.Roots, timeout)
 		if err != nil {
 			return nil, nil, err
 		}
+		opts.RecoveryTimeout = deployment.SystemdTimeout + timeout
 		systemd := apply
 		apply = func(ctx context.Context) error {
 			_, bundle, present, err := storage.LoadDeployment(target.Destination)

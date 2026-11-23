@@ -21,6 +21,7 @@ type Options struct {
 	Destination                     string
 	UID, GID                        int
 	CertificateMode, PrivateKeyMode os.FileMode
+	RecoveryTimeout                 time.Duration
 }
 
 type Session struct {
@@ -125,7 +126,7 @@ func (s *Session) Install(ctx context.Context, version string, bundle pki.Bundle
 		if old == "" {
 			return fmt.Errorf("initial service activation failed; current removed, manual service recovery required: %w", err)
 		}
-		restore, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		restore, cancel := s.recoveryContext(ctx)
 		defer cancel()
 		if rollback := apply(restore); rollback != nil {
 			return errors.Join(err, fmt.Errorf("reapply previous generation: %w", rollback))
@@ -139,6 +140,14 @@ func (s *Session) Install(ctx context.Context, version string, bundle pki.Bundle
 	}
 	s.preserve = false
 	return err
+}
+
+func (s *Session) recoveryContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := s.options.RecoveryTimeout
+	if timeout <= 0 {
+		timeout = SystemdTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }
 
 func (s *Session) stage(version string, bundle pki.Bundle) error {
