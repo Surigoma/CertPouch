@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/client"
@@ -28,6 +30,26 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if *path == "" || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "Usage: certpouch pull [--dry-run] --config PATH")
 		return 2
+	}
+	if !*dryRun {
+		local, err := config.LoadLocalClient(*path)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		for _, target := range local.Targets {
+			if _, err := os.Lstat(filepath.Join(target.Destination, ".pull-lock")); os.IsNotExist(err) {
+				continue
+			}
+			session, _, err := beginTarget(ctx, target)
+			if err == nil {
+				err = session.Close()
+			}
+			if err != nil {
+				fmt.Fprintf(stderr, "%s: %v\n", target.Name, err)
+				return 1
+			}
+		}
 	}
 	cfg, err := config.LoadClient(*path)
 	if err != nil {
@@ -72,12 +94,7 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 func applyTarget(ctx context.Context, remote *client.Client, target config.Target, inventory []distribution.Metadata) (item client.PlannedCertificate, err error) {
 	item.Name = target.Name
-	opts, apply, err := deployment.Configure(target.Destination, target.Owner, target.Group,
-		target.CertificateMode, target.PrivateKeyMode, target.Unit, target.Action)
-	if err != nil {
-		return item, err
-	}
-	session, err := deployment.Begin(opts)
+	session, apply, err := beginTarget(ctx, target)
 	if err != nil {
 		return item, err
 	}
@@ -108,4 +125,14 @@ func applyTarget(ctx context.Context, remote *client.Client, target config.Targe
 		return item, nil
 	}
 	return item, fmt.Errorf("selected certificate is missing")
+}
+
+func beginTarget(ctx context.Context, target config.Target) (*deployment.Session, func(context.Context) error, error) {
+	opts, apply, err := deployment.Configure(target.Destination, target.Owner, target.Group,
+		target.CertificateMode, target.PrivateKeyMode, target.Unit, target.Action)
+	if err != nil {
+		return nil, nil, err
+	}
+	session, err := deployment.BeginRecovering(ctx, opts, apply)
+	return session, apply, err
 }

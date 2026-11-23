@@ -27,11 +27,25 @@ type Session struct {
 	options  Options
 	lock     string
 	preserve bool
+	guard    *os.File
 }
 
 // Begin serializes writers and leaves a recovery marker if the process dies.
 // Destination must be provisioned by the operator.
 func Begin(options Options) (*Session, error) {
+	return begin(context.Background(), options, nil)
+}
+
+// BeginRecovering restores a trustworthy interrupted transaction before opening
+// a fresh session. The callback reapplies the locally configured service.
+func BeginRecovering(ctx context.Context, options Options, apply func(context.Context) error) (*Session, error) {
+	if apply == nil {
+		return nil, fmt.Errorf("recovery requires a service operation")
+	}
+	return begin(ctx, options, apply)
+}
+
+func begin(ctx context.Context, options Options, apply func(context.Context) error) (*Session, error) {
 	if !filepath.IsAbs(options.Destination) || filepath.Dir(options.Destination) == options.Destination {
 		return nil, fmt.Errorf("invalid deployment destination")
 	}
@@ -39,16 +53,27 @@ func Begin(options Options) (*Session, error) {
 		return nil, err
 	}
 	lock := filepath.Join(options.Destination, ".pull-lock")
+	guard, err := lockDestination(options.Destination)
+	if err != nil {
+		return nil, err
+	}
+	s := &Session{options: options, lock: lock, guard: guard}
+	if _, err := os.Lstat(lock); err == nil && apply != nil {
+		if err := s.recover(ctx, apply); err != nil {
+			return nil, errors.Join(fmt.Errorf("recover interrupted deployment: %w", err), guard.Close())
+		}
+	}
 	if err := os.Mkdir(lock, 0700); err != nil {
-		return nil, fmt.Errorf("acquire deployment lock (an existing lock requires recovery or another pull to finish): %w", err)
+		return nil, errors.Join(fmt.Errorf("open deployment transaction: %w", err), guard.Close())
 	}
 	if err := syncDir(options.Destination); err != nil {
-		return nil, errors.Join(err, os.Remove(lock))
+		return nil, errors.Join(err, os.Remove(lock), guard.Close())
 	}
-	return &Session{options: options, lock: lock}, nil
+	return s, nil
 }
 
-func (s *Session) Close() error {
+func (s *Session) Close() (err error) {
+	defer func() { err = errors.Join(err, s.guard.Close()) }()
 	if s.preserve {
 		return nil
 	}
@@ -71,10 +96,13 @@ func (s *Session) Install(ctx context.Context, version string, bundle pki.Bundle
 	if err != nil {
 		return err
 	}
-	if err := s.stage(version, bundle); err != nil {
-		return err
-	}
 	next := filepath.Join("versions", version)
+	if _, err := os.Lstat(filepath.Join(dest, next)); !os.IsNotExist(err) {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("version %s already exists; investigate before retrying", version)
+	}
 	if err := writeSynced(filepath.Join(s.lock, "recovery"), []byte(old+"\n"+next+"\n"), 0600, -1, -1); err != nil {
 		return errors.Join(err, removeIfPresent(filepath.Join(s.lock, "recovery")))
 	}
@@ -82,6 +110,9 @@ func (s *Session) Install(ctx context.Context, version string, bundle pki.Bundle
 		return errors.Join(err, removeIfPresent(filepath.Join(s.lock, "recovery")))
 	}
 	s.preserve = true
+	if err := s.stage(version, bundle); err != nil {
+		return err
+	}
 
 	err = switchCurrent(dest, s.lock, next)
 	if err == nil {
@@ -99,16 +130,7 @@ func (s *Session) Install(ctx context.Context, version string, bundle pki.Bundle
 		if rollback := apply(restore); rollback != nil {
 			return errors.Join(err, fmt.Errorf("reapply previous generation: %w", rollback))
 		}
-		failed := filepath.Join(dest, next)
-		for _, name := range []string{"certificate.pem", "chain.pem", "fullchain.pem", "private-key.pem"} {
-			if cleanup := os.Remove(filepath.Join(failed, name)); cleanup != nil {
-				return errors.Join(err, cleanup)
-			}
-		}
-		if cleanup := os.Remove(failed); cleanup != nil {
-			return errors.Join(err, cleanup)
-		}
-		if cleanup := syncDir(filepath.Join(dest, "versions")); cleanup != nil {
+		if cleanup := removeGeneration(dest, next); cleanup != nil {
 			return errors.Join(err, cleanup)
 		}
 	}
@@ -186,10 +208,14 @@ func currentTarget(dest string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !versionPattern.MatchString(filepath.Base(target)) || filepath.Join("versions", filepath.Base(target)) != target {
+	if !managedTarget(target) {
 		return "", fmt.Errorf("current link points outside managed generations")
 	}
 	return target, nil
+}
+
+func managedTarget(target string) bool {
+	return versionPattern.MatchString(filepath.Base(target)) && filepath.Join("versions", filepath.Base(target)) == target
 }
 
 func switchCurrent(dest, lock, target string) error {

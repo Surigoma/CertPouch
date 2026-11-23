@@ -17,12 +17,13 @@
 - `certpouch pull --dry-run --config PATH` は、許可された在庫と設定済み配置先を比較し、`install`、`update`、`unchanged` を表示する。[クライアント設定例](../configs/client.example.yaml)
 - Linuxの通常の `pull` は検証済み世代へ切り替え、systemdの反映に失敗すれば旧世代へ戻す。[配置と手動復旧の手順](client-deployment.md)
 - `status --config PATH` は公開証明書の情報、配置状態、正常なPullで記録した最終同期時刻をローカルから表示する。
+- 異常終了後の次回Pullは、旧世代と復旧記録を確認できれば、サーバーへの接続前に旧世代を再反映する。旧世代がない場合などは手動復旧が必要。
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業
 
 1. Linuxでサーバー起動とファイル権限を確認する。現在のストア読み込みは起動時の公開世代を対象とする。
-2. 異常終了後の自動復旧を実装する。[配置仕様](SPEC/04-certificate-deployment.md)
+2. サーバー側の証明書世代を安全に登録・更新する手順を実装する。[配置仕様](SPEC/04-certificate-deployment.md)
 3. クライアント設定例、systemd timer例、Linux 1ホストへの導入手順を用意する。Keycloakの証明書形式とreload/restartの動作は隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
 
-世代の登録・更新、異常終了からの自動復旧は未実装。実際のsystemdとKeycloakの連携は隔離環境で確認する。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。
+世代の登録・更新は未実装。実際のsystemdとKeycloakの連携は隔離環境で確認する。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。
