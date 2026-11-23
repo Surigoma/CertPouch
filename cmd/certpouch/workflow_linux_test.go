@@ -46,11 +46,14 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 		return path
 	}
 	store, destination := mkdir("store"), mkdir("destination")
-	caPEM, ca, tlsCert, tlsKey, firstCert, firstKey, secondCert, secondKey := workflowCertificates(t)
-	caFile := write("ca.pem", caPEM)
-	tlsCertFile, tlsKeyFile := write("tls.pem", tlsCert), write("tls.key", tlsKey)
-	firstFile, firstKeyFile := write("first.pem", firstCert), write("first.key", firstKey)
-	secondFile, secondKeyFile := write("second.pem", secondCert), write("second.key", secondKey)
+	certs := workflowCertificates(t)
+	caFile := write("ca.pem", certs.caPEM)
+	tlsCertFile, tlsKeyFile := write("tls.pem", certs.listener.cert), write("tls.key", certs.listener.key)
+	firstFile, firstKeyFile := write("first.pem", certs.first.cert), write("first.key", certs.first.key)
+	secondFile, secondKeyFile := write("second.pem", certs.second.cert), write("second.key", certs.second.key)
+	clientCertFile, clientKeyFile := write("client.pem", certs.client.cert), write("client.key", certs.client.key)
+	clientPair := certs.client.tlsPair(t)
+	clientFingerprint := fmt.Sprintf("%x", sha256.Sum256(clientPair.Certificate[0]))
 	rawToken := make([]byte, 32)
 	if _, err := rand.Read(rawToken); err != nil {
 		t.Fatal(err)
@@ -81,14 +84,14 @@ server:
   listen: %q
   publication_refresh: "1s"
   inventory_refresh: "1s"
-  tls: {certificate: %q, private_key: %q}
+  tls: {certificate: %q, private_key: %q, client_ca: %q}
 storage: {certificate_dir: %q, trust_ca_file: %q}
 dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal, max_age: "1h"}
 certificates:
   - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
 clients:
-  - {id: workflow, enabled: true, token_hash_file: %q}
-`, addr, tlsCertFile, tlsKeyFile, store, caFile, cache, caFile, hashFile)))
+  - {id: workflow, enabled: true, token_hash_file: %q, client_certificate_sha256: [%q]}
+`, addr, tlsCertFile, tlsKeyFile, caFile, store, caFile, cache, caFile, hashFile, clientFingerprint)))
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
 	logPath := filepath.Join(base, "systemctl.log")
@@ -118,7 +121,7 @@ clients:
 	}
 	clientConfig := write("client.yaml", []byte(fmt.Sprintf(`
 server: {url: %q, ca_file: %q}
-client: {id: workflow, token_file: %q}
+client: {id: workflow, token_file: %q, tls_certificate: %q, tls_private_key: %q}
 validation: {trust_ca_file: %q}
 certificates:
   - name: web.example.internal
@@ -126,7 +129,7 @@ certificates:
     expected_dns_sans: [web.example.internal]
     issuer_certificate: %q
     service: {unit: %q, action: reload}
-`, origin, caFile, tokenFile, caFile, destination, caFile, unit)))
+`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, unit)))
 	var output, diagnostic bytes.Buffer
 	publish := func(cert, key string) string {
 		t.Helper()
@@ -142,9 +145,9 @@ certificates:
 		return fields[1]
 	}
 	tlsRoots := x509.NewCertPool()
-	tlsRoots.AddCert(ca)
+	tlsRoots.AddCert(certs.ca)
 	httpClient := &http.Client{Timeout: 300 * time.Millisecond, Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: tlsRoots, MinVersion: tls.VersionTLS12},
+		TLSClientConfig: &tls.Config{RootCAs: tlsRoots, MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{clientPair}},
 	}}
 	defer httpClient.CloseIdleConnections()
 	start := func() func() {
@@ -216,6 +219,32 @@ certificates:
 			stop()
 		}
 	}()
+	noCert, err := client.New(origin, "workflow", token, tlsRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noCert.CloseIdleConnections()
+	if _, err := noCert.Inventory(t.Context()); err == nil || strings.Contains(err.Error(), "returned HTTP") {
+		t.Fatalf("client without a certificate was not rejected by TLS: %v", err)
+	}
+	unassignedPair := certs.otherClient.tlsPair(t)
+	unassigned, err := client.NewWithCertificate(origin, "workflow", token, tlsRoots, &unassignedPair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unassigned.CloseIdleConnections()
+	if _, err := unassigned.Inventory(t.Context()); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("trusted certificate assigned to another identity was not rejected by the API: %v", err)
+	}
+	invalidToken := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	wrongToken, err := client.NewWithCertificate(origin, "workflow", invalidToken, tlsRoots, &clientPair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wrongToken.CloseIdleConnections()
+	if _, err := wrongToken.Inventory(t.Context()); err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("valid mTLS certificate bypassed the token check: %v", err)
+	}
 	func() {
 		pull("install", first, true)
 		if _, err := os.Stat(filepath.Join(destination, "current")); !os.IsNotExist(err) {
@@ -231,7 +260,7 @@ certificates:
 		}
 	}()
 	second := publish(secondFile, secondKeyFile)
-	inventory, err := client.New(origin, "workflow", token, tlsRoots)
+	inventory, err := client.NewWithCertificate(origin, "workflow", token, tlsRoots, &clientPair)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +431,26 @@ func reloadTime(t *testing.T, path string) time.Time {
 	return info.ModTime()
 }
 
-func workflowCertificates(t *testing.T) ([]byte, *x509.Certificate, []byte, []byte, []byte, []byte, []byte, []byte) {
+type workflowKeyPair struct {
+	cert, key []byte
+}
+
+func (p workflowKeyPair) tlsPair(t *testing.T) tls.Certificate {
+	t.Helper()
+	result, err := tls.X509KeyPair(p.cert, p.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+type workflowMaterial struct {
+	caPEM                                        []byte
+	ca                                           *x509.Certificate
+	listener, first, second, client, otherClient workflowKeyPair
+}
+
+func workflowCertificates(t *testing.T) workflowMaterial {
 	t.Helper()
 	newKey := func() *rsa.PrivateKey {
 		t.Helper()
@@ -435,18 +483,19 @@ func workflowCertificates(t *testing.T) ([]byte, *x509.Certificate, []byte, []by
 	root.Subject = pkix.Name{CommonName: "Workflow test CA"}
 	root.IsCA, root.BasicConstraintsValid, root.KeyUsage, root.ExtKeyUsage = true, true, x509.KeyUsageCertSign, nil
 	caPEM, ca := issue(root, root, caKey, caKey)
-	leaf := func(serial int64, tlsServer bool) ([]byte, []byte) {
+	leaf := func(serial int64, role string) workflowKeyPair {
 		node, key := template(serial), newKey()
-		if tlsServer {
+		switch role {
+		case "listener":
 			node.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
-		} else {
+		case "client":
+			node.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+		default:
 			node.DNSNames = []string{"web.example.internal"}
 		}
 		cert, _ := issue(node, ca, key, caKey)
-		return cert, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+		return workflowKeyPair{cert, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})}
 	}
-	tlsCert, tlsKey := leaf(2, true)
-	firstCert, firstKey := leaf(3, false)
-	secondCert, secondKey := leaf(4, false)
-	return caPEM, ca, tlsCert, tlsKey, firstCert, firstKey, secondCert, secondKey
+	return workflowMaterial{caPEM: caPEM, ca: ca, listener: leaf(2, "listener"), first: leaf(3, "leaf"),
+		second: leaf(4, "leaf"), client: leaf(5, "client"), otherClient: leaf(6, "client")}
 }

@@ -38,6 +38,10 @@ type Client struct {
 }
 
 func New(origin, id, token string, roots *x509.CertPool) (*Client, error) {
+	return NewWithCertificate(origin, id, token, roots, nil)
+}
+
+func NewWithCertificate(origin, id, token string, roots *x509.CertPool, certificate *tls.Certificate) (*Client, error) {
 	u, err := url.Parse(origin)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
 		(u.EscapedPath() != "" && u.EscapedPath() != "/") || u.RawQuery != "" ||
@@ -53,6 +57,12 @@ func New(origin, id, token string, roots *x509.CertPool) (*Client, error) {
 	}
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots.Clone()},
+	}
+	if certificate != nil {
+		if len(certificate.Certificate) == 0 || certificate.PrivateKey == nil {
+			return nil, fmt.Errorf("invalid mTLS client key pair")
+		}
+		transport.TLSClientConfig.Certificates = []tls.Certificate{*certificate}
 	}
 	return &Client{
 		origin: *u, id: id, token: token,

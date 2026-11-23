@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"path/filepath"
@@ -11,11 +12,12 @@ import (
 )
 
 type Client struct {
-	URL      string
-	ID       string
-	Token    string
-	TLSRoots *x509.CertPool
-	Targets  []Target
+	URL            string
+	ID             string
+	Token          string
+	TLSRoots       *x509.CertPool
+	TLSCertificate *tls.Certificate
+	Targets        []Target
 }
 
 type Target struct {
@@ -35,9 +37,11 @@ type pullDocument struct {
 		CAFile string `yaml:"ca_file"`
 	} `yaml:"server"`
 	Client struct {
-		ID        string `yaml:"id"`
-		TokenFile string `yaml:"token_file"`
-		StateDir  string `yaml:"state_dir"`
+		ID             string `yaml:"id"`
+		TokenFile      string `yaml:"token_file"`
+		StateDir       string `yaml:"state_dir"`
+		TLSCertificate string `yaml:"tls_certificate"`
+		TLSPrivateKey  string `yaml:"tls_private_key"`
 	} `yaml:"client"`
 	Validation struct {
 		TrustCAFile string `yaml:"trust_ca_file"`
@@ -103,6 +107,12 @@ func loadClient(path string, network bool) (Client, error) {
 			return Client{}, fmt.Errorf("read client token file: %w", err)
 		}
 		result.Token = strings.TrimSuffix(strings.TrimSuffix(string(token), "\n"), "\r")
+		if doc.Client.TLSCertificate != "" || doc.Client.TLSPrivateKey != "" {
+			result.TLSCertificate, err = loadTLSClientCertificate(doc.Client.TLSCertificate, doc.Client.TLSPrivateKey)
+			if err != nil {
+				return Client{}, err
+			}
+		}
 	}
 	seen := make(map[string]bool)
 	for i, target := range doc.Certificates {
@@ -147,6 +157,26 @@ func loadClient(path string, network bool) (Client, error) {
 		return Client{}, fmt.Errorf("configure at least one certificate")
 	}
 	return result, nil
+}
+
+func loadTLSClientCertificate(certPath, keyPath string) (*tls.Certificate, error) {
+	if !filepath.IsAbs(certPath) || !filepath.IsAbs(keyPath) {
+		return nil, fmt.Errorf("mTLS requires absolute client.tls_certificate and client.tls_private_key paths")
+	}
+	certificate, err := readFile(certPath, false, 1<<20)
+	if err != nil {
+		return nil, fmt.Errorf("read mTLS client certificate: %w", err)
+	}
+	key, err := readFile(keyPath, true, 1<<20)
+	if err != nil {
+		return nil, fmt.Errorf("read mTLS client key: %w", err)
+	}
+	defer clear(key)
+	pair, err := tls.X509KeyPair(certificate, key)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mTLS client certificate and key pair")
+	}
+	return &pair, nil
 }
 
 func containsPath(parent, child string) bool {

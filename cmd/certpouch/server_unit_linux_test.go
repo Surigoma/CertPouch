@@ -57,8 +57,8 @@ func TestPackagedServerSystemdUnit(t *testing.T) {
 		}
 		return path
 	}
-	caPEM, ca, tlsCert, tlsKey, _, _, _, _ := workflowCertificates(t)
-	caFile, certFile, keyFile := write("ca.pem", caPEM, 0600), write("tls.pem", tlsCert, 0600), write("tls.key", tlsKey, 0600)
+	certs := workflowCertificates(t)
+	caFile, certFile, keyFile := write("ca.pem", certs.caPEM, 0600), write("tls.pem", certs.listener.cert, 0600), write("tls.key", certs.listener.key, 0600)
 	store := filepath.Join(base, "store")
 	if err := os.Mkdir(store, 0700); err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestPackagedServerSystemdUnit(t *testing.T) {
 		t.Fatalf("start isolated server unit: %v: %s", err, output)
 	}
 	roots := x509.NewCertPool()
-	roots.AddCert(ca)
+	roots.AddCert(certs.ca)
 	httpClient := &http.Client{Timeout: 300 * time.Millisecond, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
 	}}

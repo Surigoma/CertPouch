@@ -30,6 +30,7 @@ type Server struct {
 	Listen                 string
 	TLSCertificate         string
 	TLSPrivateKey          string
+	TLSClientCAs           *x509.CertPool
 	CertificateDir         string
 	Policies               map[string]pki.Policy
 	Clients                []distribution.Client
@@ -46,6 +47,7 @@ type serverDocument struct {
 		TLS                struct {
 			Certificate string `yaml:"certificate"`
 			PrivateKey  string `yaml:"private_key"`
+			ClientCA    string `yaml:"client_ca"`
 		} `yaml:"tls"`
 	} `yaml:"server"`
 	Storage struct {
@@ -65,12 +67,13 @@ type certificateDocument struct {
 }
 
 type clientDocument struct {
-	ID                  string              `yaml:"id"`
-	Enabled             bool                `yaml:"enabled"`
-	AllowedIPs          []string            `yaml:"allowed_ips"`
-	AllowedCertificates []string            `yaml:"allowed_certificates"`
-	TokenHashFile       string              `yaml:"token_hash_file"`
-	Overrides           map[string][]string `yaml:"certificate_access_overrides"`
+	ID                      string              `yaml:"id"`
+	Enabled                 bool                `yaml:"enabled"`
+	AllowedIPs              []string            `yaml:"allowed_ips"`
+	AllowedCertificates     []string            `yaml:"allowed_certificates"`
+	TokenHashFile           string              `yaml:"token_hash_file"`
+	Overrides               map[string][]string `yaml:"certificate_access_overrides"`
+	ClientCertificateSHA256 []string            `yaml:"client_certificate_sha256"`
 }
 
 func LoadServer(path string) (Server, error) {
@@ -132,6 +135,15 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		TLSPrivateKey: doc.Server.TLS.PrivateKey, CertificateDir: doc.Storage.CertificateDir,
 		Policies: make(map[string]pki.Policy),
 	}
+	if path := doc.Server.TLS.ClientCA; path != "" {
+		if !filepath.IsAbs(path) {
+			return Server{}, fmt.Errorf("server.tls.client_ca must be absolute")
+		}
+		result.TLSClientCAs, err = loadClientRoots(path)
+		if err != nil {
+			return Server{}, fmt.Errorf("load mTLS client CA: %w", err)
+		}
+	}
 	if value := doc.Server.PublicationRefresh; value != "" {
 		interval, err := time.ParseDuration(value)
 		if err != nil || interval < time.Second {
@@ -168,10 +180,23 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		}
 		inventory = &parsed
 	}
+	clientCertOwners := make(map[[sha256.Size]byte]string)
 	for i, entry := range doc.Clients {
 		client, err := entry.client(result.Policies, inventory)
 		if err != nil {
 			return Server{}, fmt.Errorf("clients[%d]: %w", i, err)
+		}
+		client.ClientCertificateHashes, err = entry.certificateHashes(result.TLSClientCAs != nil)
+		if err != nil {
+			return Server{}, fmt.Errorf("clients[%d]: %w", i, err)
+		}
+		if client.Enabled {
+			for _, fingerprint := range client.ClientCertificateHashes {
+				if owner, exists := clientCertOwners[fingerprint]; exists && owner != client.ID {
+					return Server{}, fmt.Errorf("clients[%d]: client certificate fingerprint is assigned to multiple enabled clients", i)
+				}
+				clientCertOwners[fingerprint] = client.ID
+			}
 		}
 		client.InventoryExpiresAt = inventoryExpires
 		result.Clients = append(result.Clients, client)
@@ -180,6 +205,30 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		result.ReloadInventoryClients = inventoryClientLoader(*doc.DNSInventory, doc.Clients, result.Clients, result.Policies)
 	}
 	return result, nil
+}
+
+func (c clientDocument) certificateHashes(mtls bool) ([][sha256.Size]byte, error) {
+	if !mtls && len(c.ClientCertificateSHA256) != 0 {
+		return nil, fmt.Errorf("client_certificate_sha256 requires server.tls.client_ca")
+	}
+	if mtls && c.Enabled && len(c.ClientCertificateSHA256) == 0 {
+		return nil, fmt.Errorf("mTLS requires an allowed client certificate fingerprint")
+	}
+	var fingerprints [][sha256.Size]byte
+	seen := make(map[[sha256.Size]byte]bool)
+	for _, text := range c.ClientCertificateSHA256 {
+		decoded, err := hex.DecodeString(text)
+		if err != nil || len(decoded) != sha256.Size || text != strings.ToLower(text) {
+			return nil, fmt.Errorf("expected a lowercase SHA-256 client certificate fingerprint")
+		}
+		fingerprint := [sha256.Size]byte(decoded)
+		if seen[fingerprint] {
+			return nil, fmt.Errorf("duplicate client certificate fingerprint")
+		}
+		seen[fingerprint] = true
+		fingerprints = append(fingerprints, fingerprint)
+	}
+	return fingerprints, nil
 }
 
 func decodeServer(body []byte) (serverDocument, error) {

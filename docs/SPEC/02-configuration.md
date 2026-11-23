@@ -10,7 +10,7 @@ YAMLを使用し、厳密に検証する。配布はHTTPSのみとし、適切�
 
 原仕様のサーバー例は`token_file`を示すが、本文は資格情報ハッシュの保存を要求する。本書ではサーバー用を`token_hash_file`、クライアント用を`token_file`とする案を採用する。原仕様の例をそのまま実装契約としない。
 
-`server.tls.client_ca`は将来のmTLS用であり、Phase 1で設定するだけでクライアント認証が有効になると解釈しない。
+`server.tls.client_ca` を設定するとmTLSが有効になる。各有効クライアントに `client_certificate_sha256` を指定する。トークン認証と接続元IP認可も併用する。[mTLSの設定](../mtls.md)
 
 ## 詳細化案：サーバー設定
 

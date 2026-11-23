@@ -108,7 +108,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	if cfg.InventoryRefresh != 0 {
 		go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, cfg.ReloadInventoryClients)
 	}
-	if err := server.Run(ctx, cfg.Listen, cfg.TLSCertificate, cfg.TLSPrivateKey, handler); err != nil {
+	if err := server.Run(ctx, cfg.Listen, cfg.TLSCertificate, cfg.TLSPrivateKey, cfg.TLSClientCAs, handler); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

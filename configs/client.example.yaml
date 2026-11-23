@@ -4,6 +4,9 @@ server:
 client:
   id: "web-server-01"
   token_file: "/etc/certpouch/client.token"
+  # Supply both paths if the distribution server requires mTLS.
+  # tls_certificate: "/etc/certpouch/client.crt"
+  # tls_private_key: "/etc/certpouch/client.key"
 validation:
   trust_ca_file: "/etc/ssl/certpouch/issuers.pem"
 certificates:

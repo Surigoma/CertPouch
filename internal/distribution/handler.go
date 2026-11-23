@@ -27,8 +27,9 @@ type Client struct {
 	AllowedCertificates []string
 	// CertificateIPs binds each certificate name to its permitted sources.
 	// A non-nil map selects certificate-specific authorization.
-	CertificateIPs     map[string][]netip.Prefix
-	InventoryExpiresAt time.Time
+	CertificateIPs          map[string][]netip.Prefix
+	InventoryExpiresAt      time.Time
+	ClientCertificateHashes [][sha256.Size]byte
 }
 
 type Handler struct {
@@ -64,6 +65,7 @@ func (h *Handler) WithClients(clients []Client) (*Handler, error) {
 			(client.Enabled && client.TokenHash == [sha256.Size]byte{}) {
 			return nil, fmt.Errorf("invalid or duplicate client configuration")
 		}
+		client.ClientCertificateHashes = append([][sha256.Size]byte(nil), client.ClientCertificateHashes...)
 		if client.CertificateIPs != nil {
 			if len(client.AllowedIPs) != 0 || len(client.AllowedCertificates) != 0 {
 				return nil, fmt.Errorf("cannot mix address-specific and static assignments")
@@ -254,6 +256,9 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 	if !ok || !client.Enabled || (!client.InventoryExpiresAt.IsZero() && !h.now().Before(client.InventoryExpiresAt)) {
 		return Client{}, false
 	}
+	if !matchesClientCertificate(r, client.ClientCertificateHashes) {
+		return Client{}, false
+	}
 	scheme, token, ok := strings.Cut(headers[0], " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") || len(token) > 1024 {
 		return Client{}, false
@@ -293,6 +298,23 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 		}
 	}
 	return Client{}, false
+}
+
+func matchesClientCertificate(r *http.Request, allowed [][sha256.Size]byte) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 || len(r.TLS.VerifiedChains) == 0 ||
+		len(r.TLS.VerifiedChains[0]) == 0 || !r.TLS.PeerCertificates[0].Equal(r.TLS.VerifiedChains[0][0]) {
+		return false
+	}
+	digest := sha256.Sum256(r.TLS.PeerCertificates[0].Raw)
+	for _, fingerprint := range allowed {
+		if digest == fingerprint {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

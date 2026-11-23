@@ -30,6 +30,7 @@
 - `dns fetch` はGoのOAuth2ライブラリでサービスアカウントを認証し、公式Sheetsクライアントで台帳を取得する。全範囲と内容の検証に通った場合だけキャッシュを置き換える。[取得設定と定期実行](sheets-fetch.md)
 - `server.inventory_refresh` を設定すると、キャッシュ・CSVのIP認可をサーバー再起動なしで反映できる。不正な台帳を読み込んだ場合は回復まで台帳モードの認証を停止する。
 - `dns fetch` はキャッシュと照合できる最終成功記録を保存する。`dns fetch --status` はその状態をローカルで表示し、`dns_inventory.max_age` は期限切れの台帳による新規配布要求を拒否する。[キャッシュの期限管理](dns-inventory.md)
+- 配布APIはオプションでmTLSを使える。クライアント証明書のCA検証とクライアントIDへのフィンガープリント照合を追加し、従来のトークン・IP認可も維持する。[mTLSの設定](mtls.md)
 - `cert renew` は既存のRSA CAを使い、指定した証明書の初回発行・期限更新・公開を行う。dry-runではCA秘密鍵を読まない。暗号化PEMはOpenSSLでメモリ上に復号する。[証明書更新の設定と運用](certificate-renewal.md)
 - `server.publication_refresh` は公開ストアを定期的に読み直す。署名を管理者として実行した場合も、新しい世代はストアの所有者に合わせて保存する。証明書更新用systemd timerの例を追加した。
 - `cert status` は公開ストア上の証明書の期限をローカルで監視する。配布サーバーに接続せず、公開リーフだけを読む。[監視コマンド](certificate-renewal.md#公開証明書の期限監視)

@@ -4,12 +4,13 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"net/http"
 	"time"
 )
 
-func Run(ctx context.Context, address, certFile, keyFile string, handler http.Handler) error {
+func Run(ctx context.Context, address, certFile, keyFile string, clientCAs *x509.CertPool, handler http.Handler) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -23,6 +24,10 @@ func Run(ctx context.Context, address, certFile, keyFile string, handler http.Ha
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
+	}
+	if clientCAs != nil {
+		srv.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		srv.TLSConfig.ClientCAs = clientCAs.Clone()
 	}
 	result := make(chan error, 1)
 	go func() {
