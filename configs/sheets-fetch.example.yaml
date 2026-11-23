@@ -1,5 +1,7 @@
 dns_inventory:
   cache_file: "/var/lib/dns-inventory/cache.json"
+  # Optional threshold for dns fetch --status:
+  # max_age: "45m"
   fallback_prefix: "192.0.2"
   zone: "example.internal"
 google_sheets:

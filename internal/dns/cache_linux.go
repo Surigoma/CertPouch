@@ -3,12 +3,14 @@ package dns
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 // RefreshCache snapshots a complete validated response and replaces the old
@@ -34,6 +36,11 @@ func RefreshCache(ctx context.Context, path string, limit int, fetch func(contex
 	if err != nil {
 		return false, err
 	}
+	recordPath := path + CacheFreshnessSuffix
+	recordInfo, _, err := readCurrentCache(recordPath, 4096)
+	if err != nil {
+		return false, fmt.Errorf("check cache fetch record: %w", err)
+	}
 	body, err := fetch(ctx)
 	if err != nil {
 		return false, err
@@ -44,26 +51,46 @@ func RefreshCache(ctx context.Context, path string, limit int, fetch func(contex
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if previous != nil && bytes.Equal(body, old) {
-		return false, nil
-	}
-	file, err := os.CreateTemp(dir, ".dns-cache-")
+	record, err := json.Marshal(newCacheFreshness(body, time.Now()))
 	if err != nil {
 		return false, err
 	}
+	changed = previous == nil || !bytes.Equal(body, old)
+	if changed {
+		if err := writeCacheFile(path, body, previous, previous); err != nil {
+			return false, err
+		}
+	} else if err := unchangedCacheFile(path, previous); err != nil {
+		return false, err
+	}
+	if err := writeCacheFile(recordPath, record, recordInfo, previous); err != nil {
+		return changed, fmt.Errorf("write cache fetch record: %w", err)
+	}
+	if err := syncDirectory(dir); err != nil {
+		return changed, fmt.Errorf("sync DNS cache directory: %w", err)
+	}
+	return changed, nil
+}
+
+// format supplies mode and group from the cache, including for the sidecar.
+func writeCacheFile(path string, body []byte, previous, format os.FileInfo) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".dns-cache-")
+	if err != nil {
+		return err
+	}
 	defer os.Remove(file.Name())
-	if previous != nil {
-		stat := previous.Sys().(*syscall.Stat_t)
+	if format != nil {
+		stat := format.Sys().(*syscall.Stat_t)
 		created, statErr := file.Stat()
 		if statErr != nil {
 			file.Close()
-			return false, statErr
+			return statErr
 		}
 		if created.Sys().(*syscall.Stat_t).Gid != stat.Gid {
 			err = file.Chown(-1, int(stat.Gid))
 		}
 		if err == nil {
-			err = file.Chmod(previous.Mode().Perm())
+			err = file.Chmod(format.Mode().Perm())
 		}
 	}
 	if err == nil {
@@ -73,24 +100,25 @@ func RefreshCache(ctx context.Context, path string, limit int, fetch func(contex
 		err = file.Sync()
 	}
 	if err := errors.Join(err, file.Close()); err != nil {
-		return false, err
+		return err
 	}
+	if err := unchangedCacheFile(path, previous); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
+}
+
+func unchangedCacheFile(path string, previous os.FileInfo) error {
 	current, err := os.Lstat(path)
 	if previous == nil {
 		if !os.IsNotExist(err) {
-			return false, fmt.Errorf("cache appeared during refresh; refusing to replace it")
+			return fmt.Errorf("cache or fetch record appeared during refresh; refusing to replace it")
 		}
 	} else if err != nil || !os.SameFile(previous, current) ||
 		current.Size() != previous.Size() || !current.ModTime().Equal(previous.ModTime()) {
-		return false, fmt.Errorf("cache changed during refresh; refusing to replace it")
+		return fmt.Errorf("cache or fetch record changed during refresh; refusing to replace it")
 	}
-	if err := os.Rename(file.Name(), path); err != nil {
-		return false, err
-	}
-	if err := syncDirectory(dir); err != nil {
-		return true, fmt.Errorf("cache replaced but directory sync failed: %w", err)
-	}
-	return true, nil
+	return nil
 }
 
 func readCurrentCache(path string, limit int) (os.FileInfo, []byte, error) {

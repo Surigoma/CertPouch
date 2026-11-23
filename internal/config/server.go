@@ -146,6 +146,9 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		}
 		result.InventoryRefresh = interval
 	}
+	if doc.DNSInventory != nil && doc.DNSInventory.MaxAge != "" && result.InventoryRefresh == 0 {
+		return Server{}, fmt.Errorf("dns_inventory.max_age requires server.inventory_refresh")
+	}
 	for i, cert := range doc.Certificates {
 		if _, exists := result.Policies[cert.Name]; cert.Name == "" || exists {
 			return Server{}, fmt.Errorf("missing or duplicate certificates[%d].name", i)
@@ -157,8 +160,9 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		result.Policies[cert.Name] = policy
 	}
 	var inventory *dns.Inventory
+	var inventoryExpires time.Time
 	if source := doc.DNSInventory; source != nil {
-		parsed, err := source.load()
+		parsed, err := source.loadWithExpiry(&inventoryExpires)
 		if err != nil {
 			return Server{}, err
 		}
@@ -169,6 +173,7 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		if err != nil {
 			return Server{}, fmt.Errorf("clients[%d]: %w", i, err)
 		}
+		client.InventoryExpiresAt = inventoryExpires
 		result.Clients = append(result.Clients, client)
 	}
 	if result.InventoryRefresh != 0 {
@@ -295,12 +300,14 @@ func (c clientDocument) inventoryRules(policies map[string]pki.Policy, inventory
 
 func inventoryClientLoader(source inventoryDocument, entries []clientDocument, initial []distribution.Client, policies map[string]pki.Policy) func() ([]distribution.Client, error) {
 	return func() ([]distribution.Client, error) {
-		inventory, err := source.load()
+		var expires time.Time
+		inventory, err := source.loadWithExpiry(&expires)
 		if err != nil {
 			return nil, err
 		}
 		clients := make([]distribution.Client, len(initial))
 		for i, client := range initial {
+			client.InventoryExpiresAt = expires
 			client.CertificateIPs, err = entries[i].inventoryRules(policies, inventory)
 			if err != nil {
 				return nil, fmt.Errorf("derive inventory rules for clients[%d]: %w", i, err)

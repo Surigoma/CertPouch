@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/client"
+	"github.com/Surigoma/CertPouch/internal/dns"
 )
 
 func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
@@ -69,7 +70,12 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 	cacheBody := func(octet string) []byte {
 		return []byte(fmt.Sprintf(`{"valueRanges":[{"values":[["","127.0.0",%q,"node","","","web"]]}]}`, octet))
 	}
-	cache := write("inventory.json", cacheBody("1"))
+	cacheRecord := func(body []byte, now time.Time) []byte {
+		return []byte(fmt.Sprintf(`{"fetched_at":%q,"sha256":%q}`, now.UTC().Format(time.RFC3339Nano), fmt.Sprintf("%x", sha256.Sum256(body))))
+	}
+	initialInventory := cacheBody("1")
+	cache := write("inventory.json", initialInventory)
+	write("inventory.json"+dns.CacheFreshnessSuffix, cacheRecord(initialInventory, time.Now()))
 	serverConfig := write("server.yaml", []byte(fmt.Sprintf(`
 server:
   listen: %q
@@ -77,7 +83,7 @@ server:
   inventory_refresh: "1s"
   tls: {certificate: %q, private_key: %q}
 storage: {certificate_dir: %q, trust_ca_file: %q}
-dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal}
+dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal, max_age: "1h"}
 certificates:
   - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
 clients:
@@ -261,10 +267,14 @@ certificates:
 		}
 	}()
 
-	replaceInventory := func(content []byte) {
+	replaceInventory := func(content []byte, fetchedAt time.Time) {
 		t.Helper()
 		candidate := write("inventory.next", content)
 		if err := os.Rename(candidate, cache); err != nil {
+			t.Fatal(err)
+		}
+		record := write("inventory-record.next", cacheRecord(content, fetchedAt))
+		if err := os.Rename(record, cache+dns.CacheFreshnessSuffix); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -283,11 +293,15 @@ certificates:
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	replaceInventory(cacheBody("2"))
+	replaceInventory(cacheBody("2"), time.Now())
 	waitInventory(func(count int, err error) bool { return err == nil && count == 0 })
-	replaceInventory([]byte("malformed cache"))
+	replaceInventory([]byte("malformed cache"), time.Now())
 	waitInventory(func(_ int, err error) bool { return err != nil && strings.Contains(err.Error(), "HTTP 401") })
-	replaceInventory(cacheBody("1"))
+	replaceInventory(cacheBody("1"), time.Now())
+	waitInventory(func(count int, err error) bool { return err == nil && count == 1 })
+	replaceInventory(cacheBody("1"), time.Now().Add(-2*time.Hour))
+	waitInventory(func(_ int, err error) bool { return err != nil && strings.Contains(err.Error(), "HTTP 401") })
+	replaceInventory(cacheBody("1"), time.Now())
 	waitInventory(func(count int, err error) bool { return err == nil && count == 1 })
 
 	output.Reset()

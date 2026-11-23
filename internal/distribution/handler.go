@@ -27,7 +27,8 @@ type Client struct {
 	AllowedCertificates []string
 	// CertificateIPs binds each certificate name to its permitted sources.
 	// A non-nil map selects certificate-specific authorization.
-	CertificateIPs map[string][]netip.Prefix
+	CertificateIPs     map[string][]netip.Prefix
+	InventoryExpiresAt time.Time
 }
 
 type Handler struct {
@@ -250,7 +251,7 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 		return Client{}, false
 	}
 	client, ok := h.clients[ids[0]]
-	if !ok || !client.Enabled {
+	if !ok || !client.Enabled || (!client.InventoryExpiresAt.IsZero() && !h.now().Before(client.InventoryExpiresAt)) {
 		return Client{}, false
 	}
 	scheme, token, ok := strings.Cut(headers[0], " ")

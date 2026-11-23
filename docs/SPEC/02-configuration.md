@@ -62,6 +62,7 @@ clients:
 | --- | --- |
 | `dns_inventory.cache_file` | Sheetsの取得結果を保存したファイルの絶対パス |
 | `dns_inventory.csv_files` | キャッシュの代わりに使う、シートごとのCSVエクスポートの絶対パス一覧 |
+| `dns_inventory.max_age` | 任意。`dns fetch` の最終成功時刻から使える期間。キャッシュ用の設定で、配布サーバーでは `server.inventory_refresh` が必要 |
 | `dns_inventory.fallback_prefix` | 各範囲でB列が指定されるまで使うIPv4プレフィックス |
 | `dns_inventory.zone` | 台帳上の相対名を完全修飾名にするためのゾーン名 |
 | `clients[].certificate_access_overrides` | 任意。公開対象の証明書名をキー、追加で取得を許可する台帳ホスト名の配列を値とする |

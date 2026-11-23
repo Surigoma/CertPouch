@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ func runDNSFetch(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	flags := flag.NewFlagSet("dns fetch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to Google Sheets fetch YAML configuration")
+	status := flags.Bool("status", false, "show local snapshot freshness without contacting Google")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -26,6 +28,21 @@ func runDNSFetch(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	if *path == "" || flags.NArg() != 0 {
 		flags.Usage()
 		return 2
+	}
+	if *status {
+		record, err := config.ReadSheetsCacheStatus(*path, time.Now())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if err := json.NewEncoder(stdout).Encode(record); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if record.State != "verified" {
+			return 1
+		}
+		return 0
 	}
 	cfg, err := config.LoadSheetsFetch(*path)
 	if err != nil {
