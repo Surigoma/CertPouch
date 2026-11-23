@@ -171,7 +171,7 @@ zones:
 		t.Fatalf("preview did not advance both managed serials: %d, %s, %s", code, &output, &diagnostic)
 	}
 	third := makeCandidate("192.0.2.12", 102)
-	if _, err := dns.Activate(ctx, managed, third, false, &failedNSDReload{nsdCommands: control}); err == nil ||
+	if _, err := dns.Activate(ctx, managed, third, dns.ActivationOptions{}, &failedNSDReload{nsdCommands: control}); err == nil ||
 		!strings.Contains(err.Error(), "previous records restored") {
 		t.Fatalf("expected recovery after an injected error following a real NSD reload: %v", err)
 	}

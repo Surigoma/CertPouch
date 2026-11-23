@@ -49,7 +49,7 @@
 | 認可と失効 | DNS台帳のIP変更と期限切れ、mTLS証明書とトークンの照合、ID・証明書の失効、不正な失効リストからの復帰をWSLの通しテストで確認した。 |
 | CA更新 | 生成した中間CAを使い、新しい鍵の発行、暗号化PEM、世代競合の拒否、更新タイマーを確認した。 |
 | DNS | WSLの一時NSD 4.8で、`nsd-checkzone`、正引き・逆引き候補の適用、SOA serialの引き継ぎ、切り戻しを確認した。提供されたCSVは候補生成まで確認した。 |
-| DNS移行の事前確認 | `dns diff --baseline` で登録前の候補同士を比較できる。基準候補のSOA serialは `dns sync --serial-from-baseline` で引き継げる。 |
+| DNS移行の事前確認 | `dns diff --baseline` で登録前の候補同士を比較できる。基準候補のSOA serialは `dns sync --serial-from-baseline` で引き継げる。登録後は `dns apply --max-removed-records` でレコードの削除・置換件数に上限を設けられる。 |
 | Google Sheets | 模擬HTTPSでOAuthと範囲取得、不完全な応答の拒否を確認した。実際のアカウントに対する通信は未検証。 |
 
 通常の確認は `go test ./...` と `go vet ./...`。HTTPSテストにはループバック接続が必要。Linux固有のテストはWindowsの通常実行には含まれない。実systemd経由の検証には隔離したLinux環境で `CERTPOUCH_TEST_SYSTEMD=1` を指定する。NSDの通し検証には `nsd`、`nsd-control`、`nsd-checkzone` が必要。

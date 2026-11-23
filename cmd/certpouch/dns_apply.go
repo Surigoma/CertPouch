@@ -25,6 +25,7 @@ func runDNSApply(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	conf := flags.String("nsd-config", "", "absolute path to nsd.conf for NSD control")
 	address := flags.String("dns-address", "127.0.0.1:53", "address of the authoritative NSD listener for SOA verification")
 	initialize := flags.Bool("initialize", false, "prepare the first snapshot without contacting NSD")
+	maxRemoved := flags.Int("max-removed-records", -1, "maximum old DNS records removed or replaced (-1 disables the limit)")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -32,7 +33,7 @@ func runDNSApply(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return 2
 	}
 	if flags.NArg() != 0 || !filepath.IsAbs(*candidate) || !filepath.IsAbs(*root) ||
-		(!*initialize && !filepath.IsAbs(*conf)) {
+		(!*initialize && !filepath.IsAbs(*conf)) || *maxRemoved < -1 || (*initialize && *maxRemoved >= 0) {
 		flags.Usage()
 		return 2
 	}
@@ -55,7 +56,11 @@ func runDNSApply(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 1
 		}
 	}
-	generation, err := dns.Activate(ctx, *root, *candidate, *initialize, control)
+	options := dns.ActivationOptions{Initialize: *initialize}
+	if *maxRemoved >= 0 {
+		options.MaxRemovedRecords = maxRemoved
+	}
+	generation, err := dns.Activate(ctx, *root, *candidate, options, control)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

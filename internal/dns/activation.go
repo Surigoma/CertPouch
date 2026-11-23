@@ -24,6 +24,11 @@ type ZoneControl interface {
 	ServedSerial(context.Context, string) (uint32, error)
 }
 
+type ActivationOptions struct {
+	Initialize        bool
+	MaxRemovedRecords *int
+}
+
 type ZoneSnapshot struct {
 	name       string
 	body       []byte
@@ -76,11 +81,14 @@ func readManagedSnapshot(directory string) ([]ZoneSnapshot, error) {
 }
 
 // Activate installs a coordinated set of already rendered zone candidates.
-// initialize prepares an empty managed directory without contacting NSD.
-func Activate(ctx context.Context, root, candidate string, initialize bool, control ZoneControl) (result string, err error) {
+// Initialization prepares an empty managed directory without contacting NSD.
+func Activate(ctx context.Context, root, candidate string, options ActivationOptions, control ZoneControl) (result string, err error) {
 	if runtime.GOOS != "linux" || !filepath.IsAbs(root) || !filepath.IsAbs(candidate) ||
 		filepath.Dir(filepath.Clean(root)) == filepath.Clean(root) {
 		return "", fmt.Errorf("DNS activation requires Linux and absolute, non-root managed paths")
+	}
+	if limit := options.MaxRemovedRecords; limit != nil && (*limit < 0 || options.Initialize) {
+		return "", fmt.Errorf("DNS removal limit requires a non-negative count and an existing snapshot")
 	}
 	if err := managedDirectory(root); err != nil {
 		return "", err
@@ -101,7 +109,7 @@ func Activate(ctx context.Context, root, candidate string, initialize bool, cont
 	}
 	current := filepath.Join(root, "current")
 	oldTarget, err := os.Readlink(current)
-	if initialize {
+	if options.Initialize {
 		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("initialize requires an absent current link")
 		}
@@ -121,6 +129,17 @@ func Activate(ctx context.Context, root, candidate string, initialize bool, cont
 	changed, rollback, err := planActivation(oldZones, newZones)
 	if err != nil {
 		return "", err
+	}
+	if limit := options.MaxRemovedRecords; limit != nil {
+		removed := 0
+		for i, previous := range oldZones {
+			if !sameZoneContent(previous, newZones[i]) {
+				removed += removedRecordCount(previous, newZones[i])
+			}
+		}
+		if removed > *limit {
+			return "", fmt.Errorf("candidate removes or replaces %d DNS records, exceeding the limit of %d", removed, *limit)
+		}
 	}
 	if err := confirmServed(ctx, control, oldZones); err != nil {
 		return "", fmt.Errorf("NSD does not match the active snapshot: %w", err)

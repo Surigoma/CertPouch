@@ -14,6 +14,7 @@ type testControl struct {
 	active  map[string]uint32
 	fail    bool
 	reloads int
+	queries int
 }
 
 func (*testControl) Check(context.Context, string, string) error { return nil }
@@ -36,6 +37,7 @@ func (c *testControl) Reload(_ context.Context, zone string) error {
 }
 
 func (c *testControl) ServedSerial(_ context.Context, name string) (uint32, error) {
+	c.queries++
 	return c.active[name], nil
 }
 
@@ -65,15 +67,28 @@ func TestActivateRestoresPreviousRecordsWithNewSerial(t *testing.T) {
 		return dir
 	}
 	first := candidate("192.0.2.10", 1)
-	if _, err := Activate(t.Context(), root, first, true, control); err != nil {
+	if _, err := Activate(t.Context(), root, first, ActivationOptions{Initialize: true}, control); err != nil {
 		t.Fatal(err)
 	}
 	control.active["example.internal"], control.active["2.0.192.in-addr.arpa"] = 1, 1
-	if result, err := Activate(t.Context(), root, candidate("192.0.2.10", 2), false, control); err != nil || result != "unchanged" || control.reloads != 0 {
+	zero := 0
+	if result, err := Activate(t.Context(), root, candidate("192.0.2.10", 2), ActivationOptions{MaxRemovedRecords: &zero}, control); err != nil || result != "unchanged" || control.reloads != 0 {
 		t.Fatalf("unchanged zones should not reload: %s, %v, %d", result, err, control.reloads)
 	}
+	next := candidate("192.0.2.11", 2)
+	before := mustReadCurrent(t, root)
+	queries := control.queries
+	one := 1
+	if _, err := Activate(t.Context(), root, next, ActivationOptions{MaxRemovedRecords: &one}, control); err == nil ||
+		!strings.Contains(err.Error(), "replaces 2 DNS records") {
+		t.Fatalf("expected the aggregate A and PTR replacement to exceed the limit: %v", err)
+	}
+	if mustReadCurrent(t, root) != before || control.queries != queries || control.reloads != 0 {
+		t.Fatal("a rejected candidate changed the active generation or contacted NSD")
+	}
 	control.fail = true
-	if _, err := Activate(t.Context(), root, candidate("192.0.2.11", 2), false, control); err == nil ||
+	two := 2
+	if _, err := Activate(t.Context(), root, next, ActivationOptions{MaxRemovedRecords: &two}, control); err == nil ||
 		!strings.Contains(err.Error(), "previous records restored") {
 		t.Fatalf("expected successful rollback and failed activation: %v", err)
 	}
@@ -86,7 +101,7 @@ func TestActivateRestoresPreviousRecordsWithNewSerial(t *testing.T) {
 			t.Fatalf("active snapshot not restored: %s", zone.body)
 		}
 	}
-	if _, err := Activate(t.Context(), root, candidate("192.0.2.12", 4), false, control); err != nil {
+	if _, err := Activate(t.Context(), root, candidate("192.0.2.12", 4), ActivationOptions{}, control); err != nil {
 		t.Fatalf("retry with a newer serial: %v", err)
 	}
 }

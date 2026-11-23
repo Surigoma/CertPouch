@@ -10,6 +10,8 @@ Phase 2では、既存スナップショットまたはCSVから正引き・IPv4
 
 NSD登録前は、`dns diff --baseline` で生成済みスナップショット同士を比較できる。古い候補に含まれる各ゾーンのserialから更新候補を作る場合は `dns sync --serial-from-baseline` を使う。
 
+通常の適用では、`dns apply --max-removed-records` で削除・置換されるレコード行の合計に上限を指定できる。判定対象は適用ロック取得後に読み込んだ現行世代と候補で、SOAとゾーン共通TTLは計数から除く。
+
 ## DNS要件（Phase 2）
 
 - Google Sheetsを初期のDNS在庫アダプターとする。

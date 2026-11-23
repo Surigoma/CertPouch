@@ -88,6 +88,30 @@ func sameZoneContent(a, b ZoneSnapshot) bool {
 	return bytes.Equal(a.body[:a.start], b.body[:b.start]) && bytes.Equal(a.body[a.end:], b.body[b.end:])
 }
 
+// removedRecordCount compares generated record lines after the origin, TTL and SOA.
+func removedRecordCount(current, candidate ZoneSnapshot) int {
+	records := func(zone ZoneSnapshot) string {
+		_, lines, _ := strings.Cut(string(zone.body[zone.end:]), "\n")
+		return lines
+	}
+	next := make(map[string]int)
+	for line := range strings.SplitSeq(records(candidate), "\n") {
+		next[line]++
+	}
+	removed := 0
+	for line := range strings.SplitSeq(records(current), "\n") {
+		if line == "" {
+			continue
+		}
+		if next[line] > 0 {
+			next[line]--
+		} else {
+			removed++
+		}
+	}
+	return removed
+}
+
 func changedLines(current, candidate ZoneSnapshot) (added, removed []string) {
 	lines := func(zone ZoneSnapshot) map[string]int {
 		counts := make(map[string]int)
