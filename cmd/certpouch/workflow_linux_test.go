@@ -66,17 +66,23 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	origin := "https://" + addr
+	cacheBody := func(octet string) []byte {
+		return []byte(fmt.Sprintf(`{"valueRanges":[{"values":[["","127.0.0",%q,"node","","","web"]]}]}`, octet))
+	}
+	cache := write("inventory.json", cacheBody("1"))
 	serverConfig := write("server.yaml", []byte(fmt.Sprintf(`
 server:
   listen: %q
   publication_refresh: "1s"
+  inventory_refresh: "1s"
   tls: {certificate: %q, private_key: %q}
 storage: {certificate_dir: %q, trust_ca_file: %q}
+dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal}
 certificates:
   - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
 clients:
-  - {id: workflow, enabled: true, allowed_ips: ["127.0.0.1"], allowed_certificates: [web.example.internal], token_hash_file: %q}
-`, addr, tlsCertFile, tlsKeyFile, store, caFile, caFile, hashFile)))
+  - {id: workflow, enabled: true, token_hash_file: %q}
+`, addr, tlsCertFile, tlsKeyFile, store, caFile, cache, caFile, hashFile)))
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
 	logPath := filepath.Join(base, "systemctl.log")
@@ -254,6 +260,35 @@ certificates:
 			t.Fatal("unchanged updated certificate triggered a systemd reload")
 		}
 	}()
+
+	replaceInventory := func(content []byte) {
+		t.Helper()
+		candidate := write("inventory.next", content)
+		if err := os.Rename(candidate, cache); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitInventory := func(expect func(int, error) bool) {
+		t.Helper()
+		wait, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		for {
+			entries, err := inventory.Inventory(wait)
+			if expect(len(entries), err) {
+				return
+			}
+			if wait.Err() != nil {
+				t.Fatalf("inventory authorization did not converge: count=%d: %v", len(entries), err)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	replaceInventory(cacheBody("2"))
+	waitInventory(func(count int, err error) bool { return err == nil && count == 0 })
+	replaceInventory([]byte("malformed cache"))
+	waitInventory(func(_ int, err error) bool { return err != nil && strings.Contains(err.Error(), "HTTP 401") })
+	replaceInventory(cacheBody("1"))
+	waitInventory(func(count int, err error) bool { return err == nil && count == 1 })
 
 	output.Reset()
 	diagnostic.Reset()

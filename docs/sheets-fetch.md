@@ -25,4 +25,4 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now certpouch-sheets-fetch.timer
 ```
 
-新しい台帳からゾーンを作るには [DNSゾーン生成と適用](dns-sync.md)を参照。DNS台帳を使う配布認可には、サーバー再起動後に新しいキャッシュが反映される。取得したキャッシュを基に候補を確認してから変更を適用する。
+新しい台帳からゾーンを作るには [DNSゾーン生成と適用](dns-sync.md)を参照。配布認可に新しい台帳を自動反映する場合は、[配布サーバーの台帳設定](dns-inventory.md)で `server.inventory_refresh` を設定する。取得したキャッシュを基に候補を確認してからDNSの変更を適用する。

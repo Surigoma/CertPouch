@@ -50,9 +50,15 @@ func newHandler(publications []Publication, clients []Client, logger *slog.Logge
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &Handler{catalog: c, clients: make(map[string]Client), logger: logger, now: now}
+	return (&Handler{catalog: c, logger: logger, now: now}).WithClients(clients)
+}
+
+// WithClients makes an independent authorization snapshot over the same
+// immutable certificate catalog. Requests already using h can finish normally.
+func (h *Handler) WithClients(clients []Client) (*Handler, error) {
+	next := &Handler{catalog: h.catalog, clients: make(map[string]Client), logger: h.logger, now: h.now}
 	for _, client := range clients {
-		if !namePattern.MatchString(client.ID) || h.clients[client.ID].ID != "" ||
+		if !namePattern.MatchString(client.ID) || next.clients[client.ID].ID != "" ||
 			(client.CertificateIPs == nil && len(client.AllowedIPs) == 0) ||
 			(client.Enabled && client.TokenHash == [sha256.Size]byte{}) {
 			return nil, fmt.Errorf("invalid or duplicate client configuration")
@@ -99,14 +105,14 @@ func newHandler(publications []Publication, clients []Client, logger *slog.Logge
 				return nil, fmt.Errorf("duplicate client certificate assignment")
 			}
 		}
-		h.clients[client.ID] = client
+		next.clients[client.ID] = client
 	}
-	router, err := h.newRouter()
+	router, err := next.newRouter()
 	if err != nil {
 		return nil, err
 	}
-	h.router = router
-	return h, nil
+	next.router = router
+	return next, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

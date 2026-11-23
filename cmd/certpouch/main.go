@@ -105,6 +105,9 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 			return storage.Load(cfg.CertificateDir, cfg.Policies)
 		})
 	}
+	if cfg.InventoryRefresh != 0 {
+		go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, cfg.ReloadInventoryClients)
+	}
 	if err := server.Run(ctx, cfg.Listen, cfg.TLSCertificate, cfg.TLSPrivateKey, handler); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

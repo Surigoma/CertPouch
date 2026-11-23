@@ -27,19 +27,22 @@ import (
 )
 
 type Server struct {
-	Listen             string
-	TLSCertificate     string
-	TLSPrivateKey      string
-	CertificateDir     string
-	Policies           map[string]pki.Policy
-	Clients            []distribution.Client
-	PublicationRefresh time.Duration
+	Listen                 string
+	TLSCertificate         string
+	TLSPrivateKey          string
+	CertificateDir         string
+	Policies               map[string]pki.Policy
+	Clients                []distribution.Client
+	PublicationRefresh     time.Duration
+	InventoryRefresh       time.Duration
+	ReloadInventoryClients func() ([]distribution.Client, error)
 }
 
 type serverDocument struct {
 	Server struct {
 		Listen             string `yaml:"listen"`
 		PublicationRefresh string `yaml:"publication_refresh"`
+		InventoryRefresh   string `yaml:"inventory_refresh"`
 		TLS                struct {
 			Certificate string `yaml:"certificate"`
 			PrivateKey  string `yaml:"private_key"`
@@ -136,6 +139,13 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		}
 		result.PublicationRefresh = interval
 	}
+	if value := doc.Server.InventoryRefresh; value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil || interval < time.Second || doc.DNSInventory == nil {
+			return Server{}, fmt.Errorf("server.inventory_refresh requires dns_inventory and a duration of at least one second")
+		}
+		result.InventoryRefresh = interval
+	}
 	for i, cert := range doc.Certificates {
 		if _, exists := result.Policies[cert.Name]; cert.Name == "" || exists {
 			return Server{}, fmt.Errorf("missing or duplicate certificates[%d].name", i)
@@ -160,6 +170,9 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 			return Server{}, fmt.Errorf("clients[%d]: %w", i, err)
 		}
 		result.Clients = append(result.Clients, client)
+	}
+	if result.InventoryRefresh != 0 {
+		result.ReloadInventoryClients = inventoryClientLoader(*doc.DNSInventory, doc.Clients, result.Clients, result.Policies)
 	}
 	return result, nil
 }
@@ -221,20 +234,11 @@ func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.In
 		if len(c.AllowedIPs) != 0 || len(c.AllowedCertificates) != 0 {
 			return client, fmt.Errorf("DNS inventory mode derives access; use certificate_access_overrides for exceptions")
 		}
-		client.CertificateIPs = make(map[string][]netip.Prefix, len(policies))
-		for name := range policies {
-			client.CertificateIPs[name] = inventory.PrefixesForName(name)
+		rules, err := c.inventoryRules(policies, *inventory)
+		if err != nil {
+			return client, err
 		}
-		for name, hosts := range c.Overrides {
-			if _, exists := policies[name]; !exists {
-				return client, fmt.Errorf("certificate access override references an unconfigured certificate")
-			}
-			prefixes, err := inventory.AllowedPrefixes(hosts)
-			if err != nil {
-				return client, fmt.Errorf("certificate access override: %w", err)
-			}
-			client.CertificateIPs[name] = append(client.CertificateIPs[name], prefixes...)
-		}
+		client.CertificateIPs = rules
 	} else if len(c.Overrides) != 0 {
 		return client, fmt.Errorf("certificate_access_overrides requires dns_inventory")
 	}
@@ -269,6 +273,42 @@ func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.In
 	}
 	copy(client.TokenHash[:], decoded)
 	return client, nil
+}
+
+func (c clientDocument) inventoryRules(policies map[string]pki.Policy, inventory dns.Inventory) (map[string][]netip.Prefix, error) {
+	rules := make(map[string][]netip.Prefix, len(policies))
+	for name := range policies {
+		rules[name] = inventory.PrefixesForName(name)
+	}
+	for name, hosts := range c.Overrides {
+		if _, exists := policies[name]; !exists {
+			return nil, fmt.Errorf("certificate access override references an unconfigured certificate")
+		}
+		prefixes, err := inventory.AllowedPrefixes(hosts)
+		if err != nil {
+			return nil, fmt.Errorf("certificate access override: %w", err)
+		}
+		rules[name] = append(rules[name], prefixes...)
+	}
+	return rules, nil
+}
+
+func inventoryClientLoader(source inventoryDocument, entries []clientDocument, initial []distribution.Client, policies map[string]pki.Policy) func() ([]distribution.Client, error) {
+	return func() ([]distribution.Client, error) {
+		inventory, err := source.load()
+		if err != nil {
+			return nil, err
+		}
+		clients := make([]distribution.Client, len(initial))
+		for i, client := range initial {
+			client.CertificateIPs, err = entries[i].inventoryRules(policies, inventory)
+			if err != nil {
+				return nil, fmt.Errorf("derive inventory rules for clients[%d]: %w", i, err)
+			}
+			clients[i] = client
+		}
+		return clients, nil
+	}
 }
 
 func checkedFile(path string, secret bool) (os.FileInfo, error) {

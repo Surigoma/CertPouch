@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -14,8 +15,7 @@ import (
 	"github.com/Surigoma/CertPouch/internal/distribution"
 )
 
-// PublicationHandler swaps complete, validated catalogs between HTTP requests.
-// Client authorization is fixed for the lifetime of the handler.
+// PublicationHandler swaps validated catalog and authorization snapshots between requests.
 type PublicationHandler struct {
 	current atomic.Pointer[distribution.Handler]
 	update  sync.Mutex
@@ -63,6 +63,43 @@ func (h *PublicationHandler) refresh(load func() ([]distribution.Publication, er
 }
 
 func (h *PublicationHandler) Watch(ctx context.Context, interval time.Duration, load func() ([]distribution.Publication, error)) {
+	h.watch(ctx, interval, "could not refresh certificate publications", func() error { return h.refresh(load) })
+}
+
+// WatchInventory uses a separate refresh cycle so an invalid certificate
+// publication cannot prevent revocation of a previous inventory address.
+func (h *PublicationHandler) WatchInventory(ctx context.Context, interval time.Duration, load func() ([]distribution.Client, error)) {
+	h.watch(ctx, interval, "DNS inventory authorization unavailable", func() error { return h.refreshInventory(load) })
+}
+
+func (h *PublicationHandler) refreshInventory(load func() ([]distribution.Client, error)) error {
+	clients, loadErr := load()
+	h.update.Lock()
+	defer h.update.Unlock()
+	if loadErr != nil {
+		clients = nil
+	}
+	if reflect.DeepEqual(h.clients, clients) {
+		return loadErr
+	}
+	handler, err := h.current.Load().WithClients(clients)
+	if err != nil {
+		loadErr = fmt.Errorf("validate new DNS inventory rules: %w", err)
+		clients = nil
+		handler, err = h.current.Load().WithClients(nil)
+		if err != nil {
+			return fmt.Errorf("suspend DNS inventory authorization: %w", err)
+		}
+	}
+	h.clients = clients
+	h.current.Store(handler)
+	if loadErr == nil {
+		h.logger.Info("DNS inventory authorization refreshed", "clients", len(clients))
+	}
+	return loadErr
+}
+
+func (h *PublicationHandler) watch(ctx context.Context, interval time.Duration, errorMessage string, refresh func() error) {
 	if interval <= 0 {
 		return
 	}
@@ -76,8 +113,8 @@ func (h *PublicationHandler) Watch(ctx context.Context, interval time.Duration, 
 			if ctx.Err() != nil {
 				return
 			}
-			if err := h.refresh(load); err != nil {
-				h.logger.Error("could not refresh certificate publications", "error", err)
+			if err := refresh(); err != nil {
+				h.logger.Error(errorMessage, "error", err)
 			}
 		}
 	}
