@@ -17,6 +17,15 @@ CertPouch is a self-hosted project for private DNS, private PKI, and pull-based 
 
 A central server stores certificates and their keys. In DNS inventory mode, an authenticated host can download a certificate when its source IP matches the certificate name in the inventory. Operators can grant access from additional hosts. The pull client validates each bundle, switches versions, and rolls back if service activation fails. The server can refresh published generations without restarting. [DNS inventory configuration](docs/dns-inventory.md) · [Server publication](docs/server-publication.md)
 
+## Configuration for a first deployment
+
+To distribute certificates using an existing DNS inventory cache or CSV, start with one YAML file on the server and one on each receiving host. Each YAML file references the TLS, CA, and token files it needs.
+
+- The server uses `server.yaml` for both `server` and `cert publish`. [Server example](configs/server.example.yaml)
+- Each receiving host uses `client.yaml` for both `pull` and `status`. [Client example](configs/client.example.yaml)
+
+Add YAML files as you enable features. Use `sheets-fetch.yaml` for direct Google Sheets refresh, `dns.yaml` for NSD zone generation, `renewal.yaml` for automated CA issuance and renewal, and `revocations.yaml` for reloading client revocations at runtime. [Sheets refresh](docs/sheets-fetch.md) · [DNS generation](docs/dns-sync.md) · [Certificate renewal](docs/certificate-renewal.md) · [Client revocation](docs/client-revocation.md)
+
 ## Roadmap
 
 1. **Certificate distribution.** Add HTTPS, per-client authentication, source IP allowlisting, certificate-level access controls, SHA-256 change detection, and safe deployment. The first integration target is one Keycloak host on Linux.

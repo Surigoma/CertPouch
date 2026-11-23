@@ -15,7 +15,16 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 
 ## 仕組み
 
-中央サーバーで証明書と秘密鍵を保管します。DNS台帳モードでは、認証済みホストの接続元IPがGoogle Sheetsのスナップショット上で証明書名に対応するIPと一致すると取得できます。別ホストからの取得も例外設定で許可できます。今後実装するPullクライアントは、証明書を検証してから新しい世代に切り替え、サービス操作に失敗した場合は切り戻します。[DNS台帳の設定](docs/dns-inventory.md)
+中央サーバーで証明書と秘密鍵を保管します。DNS台帳モードでは、認証済みホストの接続元IPがGoogle Sheetsのスナップショット上で証明書名に対応するIPと一致すると取得できます。別ホストからの取得も例外設定で許可できます。Pullクライアントは、証明書を検証してから新しい世代に切り替え、サービス操作に失敗した場合は切り戻します。[DNS台帳の設定](docs/dns-inventory.md)
+
+## 最初に用意する設定
+
+既存のDNS台帳キャッシュまたはCSVで証明書配布を始める場合、YAMLはサーバーに1枚、取得するホストごとに1枚です。TLS証明書、CA、トークンなどのファイルは各YAMLから参照します。
+
+- サーバーでは `server.yaml` を `server` と `cert publish` で共用します。[サーバー設定例](configs/server.example.yaml)
+- 取得ホストでは `client.yaml` を `pull` と `status` で共用します。[クライアント設定例](configs/client.example.yaml)
+
+追加のYAMLは機能を使うときに用意します。Sheetsからの直接取得には `sheets-fetch.yaml`、NSDゾーン生成には `dns.yaml`、CAによる自動発行・更新には `renewal.yaml`、再起動なしのクライアント失効には `revocations.yaml` を使います。[Sheets取得](docs/sheets-fetch.md)・[DNS生成](docs/dns-sync.md)・[CA更新](docs/certificate-renewal.md)・[クライアント失効](docs/client-revocation.md)
 
 ## ロードマップ
 
