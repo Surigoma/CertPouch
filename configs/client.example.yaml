@@ -12,3 +12,6 @@ certificates:
     expected_dns_sans: ["web.example.internal"]
     expected_ip_sans: []
     issuer_certificate: "/etc/ssl/certpouch/intermediate.crt"
+    service:
+      unit: "nginx.service"
+      action: "reload"

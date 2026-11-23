@@ -28,7 +28,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return runPull(ctx, args[1:], os.Stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "server" {
-		fmt.Fprintln(stderr, "Usage: certpouch server --config PATH\n       certpouch pull --dry-run --config PATH")
+		fmt.Fprintln(stderr, "Usage: certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH")
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return 0
 		}

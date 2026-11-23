@@ -18,9 +18,12 @@ type Client struct {
 }
 
 type Target struct {
-	Name        string
-	Destination string
-	Policy      pki.Policy
+	Name                            string
+	Destination                     string
+	Policy                          pki.Policy
+	Owner, Group                    string
+	CertificateMode, PrivateKeyMode string
+	Unit, Action                    string
 }
 
 type pullDocument struct {
@@ -104,7 +107,12 @@ func LoadClient(path string) (Client, error) {
 			return Client{}, fmt.Errorf("certificates[%d]: %w", i, err)
 		}
 		seen[target.Name] = true
-		result.Targets = append(result.Targets, Target{Name: target.Name, Destination: dest, Policy: policy})
+		result.Targets = append(result.Targets, Target{
+			Name: target.Name, Destination: dest, Policy: policy,
+			Owner: target.Owner, Group: target.Group,
+			CertificateMode: target.CertificateMode, PrivateKeyMode: target.PrivateKeyMode,
+			Unit: target.Service.Unit, Action: target.Service.Action,
+		})
 	}
 	if len(result.Targets) == 0 {
 		return Client{}, fmt.Errorf("configure at least one certificate")

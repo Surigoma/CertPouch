@@ -6,7 +6,7 @@
 
 CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明書配布を扱うセルフホスト型のプロジェクトです。既存のプライベートCAを利用し、単一のGoバイナリで動作する設計です。
 
-**開発状況：** HTTPS配布サーバーとPullの更新プレビューを実装済みです。自動配置は実装予定です。
+**開発状況：** HTTPS配布サーバー、Pullの更新プレビュー、Linuxとsystemdを使った配置を実装済みです。[Linuxでの配置手順](docs/client-deployment.md)
 
 ## 仕組み
 
@@ -30,7 +30,7 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 | `certpouch dns sync` | DNSゾーンを同期 |
 | `certpouch cert renew` | 更新時期を迎えた証明書を更新 |
 
-`server` と `pull --dry-run` には `--config PATH` が必要です。ほかのコマンドは実装予定です。[クライアント設定例](configs/client.example.yaml)
+`server` と `pull` には `--config PATH` が必要です。ほかのコマンドは実装予定です。[クライアント設定例](configs/client.example.yaml)
 
 ## 仕様とライセンス
 

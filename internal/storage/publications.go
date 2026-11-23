@@ -36,7 +36,7 @@ func LoadDeployment(destination string) (string, pki.Bundle, bool, error) {
 		return "", pki.Bundle{}, false, err
 	}
 	defer root.Close()
-	entry, present, err := loadCurrent(root, ".", pki.Policy{})
+	entry, present, err := loadCurrent(root, ".", pki.Policy{}, true)
 	return entry.Version, entry.Bundle, present, err
 }
 
@@ -64,7 +64,7 @@ func Load(directory string, policies map[string]pki.Policy) ([]distribution.Publ
 		if !namePattern.MatchString(name) || !filepath.IsLocal(name) {
 			return nil, fmt.Errorf("invalid certificate name")
 		}
-		publication, present, err := loadCurrent(root, name, policy)
+		publication, present, err := loadCurrent(root, name, policy, false)
 		if err != nil {
 			return nil, fmt.Errorf("load certificate %s: %w", name, err)
 		}
@@ -75,7 +75,7 @@ func Load(directory string, policies map[string]pki.Policy) ([]distribution.Publ
 	return publications, nil
 }
 
-func loadCurrent(root *os.Root, name string, policy pki.Policy) (distribution.Publication, bool, error) {
+func loadCurrent(root *os.Root, name string, policy pki.Policy, deployment bool) (distribution.Publication, bool, error) {
 	info, err := root.Lstat(name)
 	if os.IsNotExist(err) {
 		return distribution.Publication{}, false, nil
@@ -111,14 +111,14 @@ func loadCurrent(root *os.Root, name string, policy pki.Policy) (distribution.Pu
 		return distribution.Publication{}, false, fmt.Errorf("open generation: %w", err)
 	}
 	defer generationRoot.Close()
-	bundle, err := readBundle(generationRoot)
+	bundle, err := readBundle(generationRoot, deployment)
 	if err != nil {
 		return distribution.Publication{}, false, err
 	}
 	return distribution.Publication{Name: name, Version: version, Current: true, Bundle: bundle, Policy: policy}, true, nil
 }
 
-func readBundle(root *os.Root) (pki.Bundle, error) {
+func readBundle(root *os.Root, deployment bool) (pki.Bundle, error) {
 	var bundle pki.Bundle
 	remaining := distribution.MaxDownloadBytes
 	for _, artifact := range []struct {
@@ -130,7 +130,7 @@ func readBundle(root *os.Root) (pki.Bundle, error) {
 		{"chain.pem", false, &bundle.ChainPEM},
 		{"private-key.pem", true, &bundle.PrivateKeyPEM},
 	} {
-		body, err := readArtifact(root, artifact.name, artifact.secret, remaining)
+		body, err := readArtifact(root, artifact.name, artifact.secret, deployment, remaining)
 		if err != nil {
 			return pki.Bundle{}, fmt.Errorf("read %s: %w", artifact.name, err)
 		}
@@ -140,12 +140,13 @@ func readBundle(root *os.Root) (pki.Bundle, error) {
 	return bundle, nil
 }
 
-func readArtifact(root *os.Root, name string, secret bool, limit int) ([]byte, error) {
+func readArtifact(root *os.Root, name string, secret, deployment bool, limit int) ([]byte, error) {
 	info, err := root.Lstat(name)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || (secret && !privatePermissions(info)) {
+	groupReadable := deployment && info.Mode().Perm() == 0640
+	if !info.Mode().IsRegular() || (secret && !privatePermissions(info) && !groupReadable) {
 		return nil, fmt.Errorf("invalid artifact type or permissions")
 	}
 	file, err := root.Open(name)
