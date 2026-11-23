@@ -1,6 +1,8 @@
-# Phase 1 実装引き継ぎ
+# CertPouch 実装引き継ぎ
 
-文書のコミットは `0bd019c`、配布APIの初回実装は `d5cc743`。着手前に `git status --short` で現在の状態を確認する。
+実装の基準は `main` の `7e2de98`（クライアント失効リストの自動反映）。着手前に `git status --short` で現在の状態を確認する。作業ツリーにある既存の `.gitignore` 変更と、`.orig/` の移行資料は作業者の管理下にある。移行資料に本番情報が含まれる可能性があるため、コミットやログ出力の対象にしない。
+
+現在は、証明書の登録・発行からHTTPS配布、LinuxクライアントでのPull・配置・切り戻しまで実装済み。DNSはSheetsまたはCSVの読み込み、NSD向け候補生成、適用と切り戻しに対応する。次に必要なのは、テスト用証明書と権限で隔離環境に導入し、実際の利用サービスで更新と復旧を確認すること。
 
 ## 実装済み
 
@@ -38,9 +40,21 @@
 - WSLの一時的なsystemdタイマーで、テスト用中間CAによる期限切れ証明書の更新を確認した。`CERTPOUCH_TEST_SYSTEMD=1 go test -run TestRenewWithPrivateCA ./cmd/certpouch` で再現できる。
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
+## 検証済みの範囲
+
+| 対象 | 確認内容 |
+| --- | --- |
+| HTTPS配布・Pull | WSLのループバックと実systemdで、登録、初回配置、タイマー更新、サービス反映、同一世代の再Pull、ローカルstatusを確認した。 |
+| 認可と失効 | DNS台帳のIP変更と期限切れ、mTLS証明書とトークンの照合、ID・証明書の失効、不正な失効リストからの復帰をWSLの通しテストで確認した。 |
+| CA更新 | 生成した中間CAを使い、新しい鍵の発行、暗号化PEM、世代競合の拒否、更新タイマーを確認した。 |
+| DNS | WSLの一時NSD 4.8で、`nsd-checkzone`、正引き・逆引き候補の適用、SOA serialの引き継ぎ、切り戻しを確認した。提供されたCSVは候補生成まで確認した。 |
+| Google Sheets | 模擬HTTPSでOAuthと範囲取得、不完全な応答の拒否を確認した。実際のアカウントに対する通信は未検証。 |
+
+通常の確認は `go test ./...` と `go vet ./...`。HTTPSテストにはループバック接続が必要。Linux固有のテストはWindowsの通常実行には含まれない。実systemd経由の検証には隔離したLinux環境で `CERTPOUCH_TEST_SYSTEMD=1` を指定する。NSDの通し検証には `nsd`、`nsd-control`、`nsd-checkzone` が必要。
+
 ## 次の作業
 
-1. Keycloak 1ホストの証明書参照形式、更新後のTLS応答、切り戻しを隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
+1. まず隔離したKeycloak 1ホストで、`current/fullchain.pem` と秘密鍵の参照、`service.verify_tls` による更新確認、更新失敗時の切り戻しを試す。実際のKeycloakでの確認は未実施。[配置手順](client-deployment.md)・[受け入れ条件](SPEC/06-verification-operations.md)
 2. 既存NSDゾーンと出力を比較し、必要な固定レコードを移行する。管理ゾーンの追加・削除の手順を検討する。[DNS仕様](SPEC/05-dns-pki.md)
 3. 本番のCA保護方式と専用ユーザーを使い、隔離環境で更新timerから配布まで検証する。
 4. 実際のサービスアカウントで台帳取得を検証し、既存キャッシュとの比較と切り替えを行う。
