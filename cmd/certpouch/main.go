@@ -85,7 +85,17 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return 1
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, nil))
-	handler, err := server.NewPublicationHandler(publications, cfg.Clients, logger)
+	var revocations *distribution.RevocationPolicy
+	if cfg.RevocationFile != "" {
+		entries, err := config.LoadRevocations(cfg.RevocationFile)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		revocations = &distribution.RevocationPolicy{}
+		revocations.Replace(entries)
+	}
+	handler, err := server.NewPublicationHandlerWithRevocations(publications, cfg.Clients, logger, revocations)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -107,6 +117,11 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	if cfg.InventoryRefresh != 0 {
 		go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, cfg.ReloadInventoryClients)
+	}
+	if revocations != nil {
+		go handler.WatchRevocations(refreshContext, cfg.RevocationRefresh, func() (distribution.Revocations, error) {
+			return config.LoadRevocations(cfg.RevocationFile)
+		})
 	}
 	if err := server.Run(ctx, cfg.Listen, cfg.TLSCertificate, cfg.TLSPrivateKey, cfg.TLSClientCAs, handler); err != nil {
 		fmt.Fprintln(stderr, err)

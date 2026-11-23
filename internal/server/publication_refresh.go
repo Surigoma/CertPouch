@@ -17,22 +17,27 @@ import (
 
 // PublicationHandler swaps validated catalog and authorization snapshots between requests.
 type PublicationHandler struct {
-	current atomic.Pointer[distribution.Handler]
-	update  sync.Mutex
-	clients []distribution.Client
-	loaded  []publicationDigest
-	logger  *slog.Logger
+	current     atomic.Pointer[distribution.Handler]
+	update      sync.Mutex
+	clients     []distribution.Client
+	loaded      []publicationDigest
+	logger      *slog.Logger
+	revocations *distribution.RevocationPolicy
 }
 
 func NewPublicationHandler(publications []distribution.Publication, clients []distribution.Client, logger *slog.Logger) (*PublicationHandler, error) {
+	return NewPublicationHandlerWithRevocations(publications, clients, logger, nil)
+}
+
+func NewPublicationHandlerWithRevocations(publications []distribution.Publication, clients []distribution.Client, logger *slog.Logger, revocations *distribution.RevocationPolicy) (*PublicationHandler, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	handler, err := distribution.NewHandler(publications, clients, logger)
+	handler, err := distribution.NewHandlerWithRevocations(publications, clients, logger, revocations)
 	if err != nil {
 		return nil, err
 	}
-	h := &PublicationHandler{clients: clients, loaded: publicationDigests(publications), logger: logger}
+	h := &PublicationHandler{clients: clients, loaded: publicationDigests(publications), logger: logger, revocations: revocations}
 	h.current.Store(handler)
 	return h, nil
 }
@@ -52,7 +57,7 @@ func (h *PublicationHandler) refresh(load func() ([]distribution.Publication, er
 	if slices.Equal(h.loaded, loaded) {
 		return nil
 	}
-	handler, err := distribution.NewHandler(publications, h.clients, h.logger)
+	handler, err := distribution.NewHandlerWithRevocations(publications, h.clients, h.logger, h.revocations)
 	if err != nil {
 		return fmt.Errorf("validate refreshed publications: %w", err)
 	}
@@ -60,6 +65,21 @@ func (h *PublicationHandler) refresh(load func() ([]distribution.Publication, er
 	h.loaded = loaded
 	h.logger.Info("certificate publications refreshed", "count", len(publications))
 	return nil
+}
+
+func (h *PublicationHandler) WatchRevocations(ctx context.Context, interval time.Duration, load func() (distribution.Revocations, error)) {
+	if h.revocations == nil {
+		return
+	}
+	h.watch(ctx, interval, "client revocation list unavailable; distribution denied", func() error {
+		entries, err := load()
+		if err != nil {
+			h.revocations.Replace(distribution.Revocations{DenyAll: true})
+			return err
+		}
+		h.revocations.Replace(entries)
+		return nil
+	})
 }
 
 func (h *PublicationHandler) Watch(ctx context.Context, interval time.Duration, load func() ([]distribution.Publication, error)) {

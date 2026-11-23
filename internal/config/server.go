@@ -37,6 +37,8 @@ type Server struct {
 	PublicationRefresh     time.Duration
 	InventoryRefresh       time.Duration
 	ReloadInventoryClients func() ([]distribution.Client, error)
+	RevocationFile         string
+	RevocationRefresh      time.Duration
 }
 
 type serverDocument struct {
@@ -44,6 +46,8 @@ type serverDocument struct {
 		Listen             string `yaml:"listen"`
 		PublicationRefresh string `yaml:"publication_refresh"`
 		InventoryRefresh   string `yaml:"inventory_refresh"`
+		RevocationFile     string `yaml:"revocation_file"`
+		RevocationRefresh  string `yaml:"revocation_refresh"`
 		TLS                struct {
 			Certificate string `yaml:"certificate"`
 			PrivateKey  string `yaml:"private_key"`
@@ -161,6 +165,22 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 	if doc.DNSInventory != nil && doc.DNSInventory.MaxAge != "" && result.InventoryRefresh == 0 {
 		return Server{}, fmt.Errorf("dns_inventory.max_age requires server.inventory_refresh")
 	}
+	if path := doc.Server.RevocationFile; path != "" {
+		if !filepath.IsAbs(path) {
+			return Server{}, fmt.Errorf("server.revocation_file must be absolute")
+		}
+		result.RevocationFile = path
+		result.RevocationRefresh = 5 * time.Second
+	} else if doc.Server.RevocationRefresh != "" {
+		return Server{}, fmt.Errorf("server.revocation_refresh requires server.revocation_file")
+	}
+	if value := doc.Server.RevocationRefresh; value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil || interval < time.Second {
+			return Server{}, fmt.Errorf("server.revocation_refresh must be a duration of at least one second")
+		}
+		result.RevocationRefresh = interval
+	}
 	for i, cert := range doc.Certificates {
 		if _, exists := result.Policies[cert.Name]; cert.Name == "" || exists {
 			return Server{}, fmt.Errorf("missing or duplicate certificates[%d].name", i)
@@ -214,9 +234,13 @@ func (c clientDocument) certificateHashes(mtls bool) ([][sha256.Size]byte, error
 	if mtls && c.Enabled && len(c.ClientCertificateSHA256) == 0 {
 		return nil, fmt.Errorf("mTLS requires an allowed client certificate fingerprint")
 	}
+	return parseCertificateHashes(c.ClientCertificateSHA256)
+}
+
+func parseCertificateHashes(values []string) ([][sha256.Size]byte, error) {
 	var fingerprints [][sha256.Size]byte
 	seen := make(map[[sha256.Size]byte]bool)
-	for _, text := range c.ClientCertificateSHA256 {
+	for _, text := range values {
 		decoded, err := hex.DecodeString(text)
 		if err != nil || len(decoded) != sha256.Size || text != strings.ToLower(text) {
 			return nil, fmt.Errorf("expected a lowercase SHA-256 client certificate fingerprint")

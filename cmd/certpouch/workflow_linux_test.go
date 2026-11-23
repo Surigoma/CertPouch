@@ -79,11 +79,15 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 	initialInventory := cacheBody("1")
 	cache := write("inventory.json", initialInventory)
 	write("inventory.json"+dns.CacheFreshnessSuffix, cacheRecord(initialInventory, time.Now()))
+	const noRevocations = "client_ids: []\nclient_certificate_sha256: []\n"
+	revocationFile := write("revocations.yaml", []byte(noRevocations))
 	serverConfig := write("server.yaml", []byte(fmt.Sprintf(`
 server:
   listen: %q
   publication_refresh: "1s"
   inventory_refresh: "1s"
+  revocation_file: %q
+  revocation_refresh: "1s"
   tls: {certificate: %q, private_key: %q, client_ca: %q}
 storage: {certificate_dir: %q, trust_ca_file: %q}
 dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal, max_age: "1h"}
@@ -91,7 +95,7 @@ certificates:
   - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
 clients:
   - {id: workflow, enabled: true, token_hash_file: %q, client_certificate_sha256: [%q]}
-`, addr, tlsCertFile, tlsKeyFile, caFile, store, caFile, cache, caFile, hashFile, clientFingerprint)))
+`, addr, revocationFile, tlsCertFile, tlsKeyFile, caFile, store, caFile, cache, caFile, hashFile, clientFingerprint)))
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
 	logPath := filepath.Join(base, "systemctl.log")
@@ -332,6 +336,31 @@ certificates:
 	waitInventory(func(_ int, err error) bool { return err != nil && strings.Contains(err.Error(), "HTTP 401") })
 	replaceInventory(cacheBody("1"), time.Now())
 	waitInventory(func(count int, err error) bool { return err == nil && count == 1 })
+
+	replaceRevocations := func(contents string) {
+		t.Helper()
+		next := write("revocations.next", []byte(contents))
+		if err := os.Rename(next, revocationFile); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deny := func(_ int, err error) bool { return err != nil && strings.Contains(err.Error(), "HTTP 401") }
+	allow := func(count int, err error) bool { return err == nil && count == 1 }
+	replaceRevocations("client_ids: [workflow]\nclient_certificate_sha256: []\n")
+	waitInventory(deny)
+	replaceRevocations(noRevocations)
+	waitInventory(allow)
+	replaceRevocations(fmt.Sprintf("client_ids: []\nclient_certificate_sha256: [%q]\n", clientFingerprint))
+	waitInventory(deny)
+	// A DNS inventory reload must not bypass the independent revocation list.
+	replaceInventory(cacheBody("1"), time.Now())
+	waitInventory(deny)
+	replaceRevocations(noRevocations)
+	waitInventory(allow)
+	replaceRevocations("client_ids: []\n")
+	waitInventory(deny)
+	replaceRevocations(noRevocations)
+	waitInventory(allow)
 
 	output.Reset()
 	diagnostic.Reset()

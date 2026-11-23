@@ -2,6 +2,9 @@ server:
   listen: "127.0.0.1:8443"
   publication_refresh: "1m"
   inventory_refresh: "1m"
+  # Optional deny-only list, reloaded every 5s by default.
+  # revocation_file: "/etc/certpouch/revocations.yaml"
+  # revocation_refresh: "5s"
   tls:
     certificate: "/etc/certpouch/server.crt"
     private_key: "/etc/certpouch/server.key"

@@ -33,18 +33,27 @@ type Client struct {
 }
 
 type Handler struct {
-	router  *gin.Engine
-	catalog catalog
-	clients map[string]Client
-	logger  *slog.Logger
-	now     func() time.Time
+	router      *gin.Engine
+	catalog     catalog
+	clients     map[string]Client
+	logger      *slog.Logger
+	now         func() time.Time
+	revocations *RevocationPolicy
 }
 
 func NewHandler(publications []Publication, clients []Client, logger *slog.Logger) (*Handler, error) {
 	return newHandler(publications, clients, logger, time.Now)
 }
 
+func NewHandlerWithRevocations(publications []Publication, clients []Client, logger *slog.Logger, revocations *RevocationPolicy) (*Handler, error) {
+	return buildHandler(publications, clients, logger, time.Now, revocations)
+}
+
 func newHandler(publications []Publication, clients []Client, logger *slog.Logger, now func() time.Time) (*Handler, error) {
+	return buildHandler(publications, clients, logger, now, nil)
+}
+
+func buildHandler(publications []Publication, clients []Client, logger *slog.Logger, now func() time.Time, revocations *RevocationPolicy) (*Handler, error) {
 	c, err := buildCatalog(publications, now())
 	if err != nil {
 		return nil, err
@@ -52,13 +61,13 @@ func newHandler(publications []Publication, clients []Client, logger *slog.Logge
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return (&Handler{catalog: c, logger: logger, now: now}).WithClients(clients)
+	return (&Handler{catalog: c, logger: logger, now: now, revocations: revocations}).WithClients(clients)
 }
 
 // WithClients makes an independent authorization snapshot over the same
 // immutable certificate catalog. Requests already using h can finish normally.
 func (h *Handler) WithClients(clients []Client) (*Handler, error) {
-	next := &Handler{catalog: h.catalog, clients: make(map[string]Client), logger: h.logger, now: h.now}
+	next := &Handler{catalog: h.catalog, clients: make(map[string]Client), logger: h.logger, now: h.now, revocations: h.revocations}
 	for _, client := range clients {
 		if !namePattern.MatchString(client.ID) || next.clients[client.ID].ID != "" ||
 			(client.CertificateIPs == nil && len(client.AllowedIPs) == 0) ||
@@ -254,6 +263,9 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 	}
 	client, ok := h.clients[ids[0]]
 	if !ok || !client.Enabled || (!client.InventoryExpiresAt.IsZero() && !h.now().Before(client.InventoryExpiresAt)) {
+		return Client{}, false
+	}
+	if h.revocations.denies(client.ID, r) {
 		return Client{}, false
 	}
 	if !matchesClientCertificate(r, client.ClientCertificateHashes) {
