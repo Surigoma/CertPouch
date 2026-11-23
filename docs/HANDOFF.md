@@ -19,12 +19,13 @@
 - `status --config PATH` は公開証明書の情報、配置状態、正常なPullで記録した最終同期時刻をローカルから表示する。
 - 異常終了後の次回Pullは、旧世代と復旧記録を確認できれば、サーバーへの接続前に旧世代を再反映する。旧世代がない場合などは手動復旧が必要。
 - `cert publish` は既存CAが発行した証明書を検証し、公開ストアへ新しい世代として登録する。[登録手順](server-publication.md)
+- Linuxの通しテストで、テストCAによる登録、HTTPS配布、初回Pull、再起動後の世代更新、同一世代の再Pull、オフラインの `status` を確認した。サービス操作はテスト用の代替コマンドで検証した。
+- systemdの定期実行例と[導入手順](client-deployment.md)を追加した。
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業
 
-1. Linuxでサーバー起動とファイル権限を確認する。現在のストア読み込みは起動時の公開世代を対象とする。
-2. 登録後のサーバー再起動までを含め、テストCAを使った登録・配布・PullをLinuxで通し検証する。
-3. クライアント設定例、systemd timer例、Linux 1ホストへの導入手順を用意する。Keycloakの証明書形式とreload/restartの動作は隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
+1. 隔離したLinux環境の実際のsystemdで定期実行とサービス再反映を確認する。
+2. Keycloak 1ホストの証明書参照形式、更新後のTLS応答、切り戻しを確認する。[受け入れ条件](SPEC/06-verification-operations.md)
 
 登録を反映するには配布サーバーの再起動が必要。実際のsystemdとKeycloakの連携は隔離環境で確認する。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。

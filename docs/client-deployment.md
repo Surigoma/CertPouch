@@ -23,3 +23,13 @@ certpouch status --config /etc/certpouch/client.yaml
 `status` はサーバーに接続せず、配置世代、Subject、Issuer、SAN、有効期限、フィンガープリント、最終同期時刻をJSONで表示する。未配置、期限切れ、検証失敗、復旧記録などがあれば終了コード1を返す。`recovery_pending` は復旧記録がある状態を示すため、手動復旧の前にPullが終了していることを確認する。
 
 成功した通常のPullは、変更がない場合も照合済みの世代・フィンガープリント・時刻を記録する。既定では配置先の `.sync.json` に保存する。`client.state_dir` を指定する場合は実行ユーザーが書き込めるディレクトリを事前に作成する。プレビューは記録を更新しない。
+
+手動PullとTLS接続の確認後、[service例](../configs/systemd/certpouch-pull.service)と[timer例](../configs/systemd/certpouch-pull.timer)を `/etc/systemd/system/` に置くと定期実行できる。例はバイナリを `/usr/local/bin/certpouch` に置き、システムサービスの既定ユーザーで実行する想定。
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now certpouch-pull.timer
+systemctl list-timers certpouch-pull.timer
+```
+
+例の実行周期は1時間で、ホスト間の同時実行を避けるため最大5分ずらす。失敗時は `journalctl -u certpouch-pull.service` と `certpouch status` で確認する。変更を止めるにはtimerを停止する。実行中のserviceがあれば、終了するまで待ってから配置状態を確認する。
