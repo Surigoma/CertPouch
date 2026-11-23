@@ -19,10 +19,17 @@ type dnsDocument struct {
 		Retry           uint32            `yaml:"retry"`
 		Expire          uint32            `yaml:"expire"`
 		NegativeTTL     uint32            `yaml:"negative_ttl"`
+		StaticRecords   []struct {
+			Zone     string  `yaml:"zone"`
+			Owner    string  `yaml:"owner"`
+			Type     string  `yaml:"type"`
+			Value    string  `yaml:"value"`
+			Priority *uint16 `yaml:"priority"`
+		} `yaml:"static_records"`
 	} `yaml:"zones"`
 }
 
-func LoadDNSZones(path string) ([]dns.Zone, error) {
+func LoadDNSZones(path, serialDirectory string) ([]dns.Zone, error) {
 	raw, err := readFile(path, false, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("read DNS config: %w", err)
@@ -30,6 +37,15 @@ func LoadDNSZones(path string) ([]dns.Zone, error) {
 	var doc dnsDocument
 	if err := decodeYAML(raw, &doc); err != nil {
 		return nil, err
+	}
+	if serialDirectory != "" {
+		if doc.Zones.Serial != nil || len(doc.Zones.PreviousSerials) != 0 {
+			return nil, fmt.Errorf("--serial-from cannot be combined with zones.serial or zones.previous_serials")
+		}
+		doc.Zones.PreviousSerials, err = dns.ReadManagedSerials(serialDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("read current zone serials: %w", err)
+		}
 	}
 	if doc.Zones.Serial == nil && len(doc.Zones.PreviousSerials) == 0 {
 		return nil, fmt.Errorf("DNS configuration requires zones.serial or zones.previous_serials")
@@ -43,10 +59,18 @@ func LoadDNSZones(path string) ([]dns.Zone, error) {
 	if options.Serial != nil {
 		serial = *options.Serial
 	}
+	records := make([]dns.StaticRecord, 0, len(options.StaticRecords))
+	for _, record := range options.StaticRecords {
+		records = append(records, dns.StaticRecord{
+			Zone: record.Zone, Owner: record.Owner, Type: record.Type,
+			Value: record.Value, Priority: record.Priority,
+		})
+	}
 	return dns.RenderZones(inventory, dns.ZoneOptions{
 		Forward: doc.Inventory.Zone, Primary: options.Primary, Mailbox: options.Mailbox,
 		Nameservers: options.Nameservers, TTL: options.TTL, Serial: serial,
 		PreviousSerials: options.PreviousSerials, AdvanceSerial: options.Serial == nil,
-		Refresh: options.Refresh, Retry: options.Retry, Expire: options.Expire, NegativeTTL: options.NegativeTTL,
+		StaticRecords: records,
+		Refresh:       options.Refresh, Retry: options.Retry, Expire: options.Expire, NegativeTTL: options.NegativeTTL,
 	})
 }

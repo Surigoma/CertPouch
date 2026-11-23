@@ -6,6 +6,8 @@ Phase 1の配布認可では既存処理が保存したGoogle Sheetsのスナッ
 
 Phase 2では、既存スナップショットまたはCSVから正引き・IPv4逆引きを生成する。前回serialが指定された場合は比較またはインクリメントを行う。`dns sync --stage-dir` では `nsd-checkzone` 済みの候補を保存し、`dns apply` では管理下のスナップショットへ切り替える。更新後は実際に配信されたserialを確認し、失敗時は旧レコードを新しいserialで切り戻す。[DNS候補の設定と適用](../dns-sync.md)
 
+`dns sync --serial-from` は管理下の現在世代からSOA serialを取得する。`zones.static_records` で台帳外の固定レコードを追加し、CNAMEの衝突と循環を検証する。適用前に `dns diff` で候補との差分とserialを確認できる。
+
 ## DNS要件（Phase 2）
 
 - Google Sheetsを初期のDNS在庫アダプターとする。

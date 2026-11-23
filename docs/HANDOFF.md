@@ -26,6 +26,7 @@
 - `server --check-config` は待ち受けを開始せずに設定、TLS鍵ペア、公開世代を検証する。WSLでは同梱unitの実行ユーザーとパスをテスト用に差し替え、非特権ユーザーで起動しHTTPS healthが応答することを確認した。
 - クライアントの `service.verify_tls` を指定すると、サービスがアクティブ世代の証明書を返すことを配置後と復旧時に確認できる。[Keycloak向け設定例](client-deployment.md)
 - `dns sync` は既存キャッシュまたはCSVからNSD向けゾーン候補を生成する。`dns apply` は専用管理ディレクトリで候補と切り戻し用の世代を検証し、NSDへの反映をSOA serialで確認する。[DNSゾーン生成と適用](dns-sync.md)
+- DNS設定で固定レコードを追加できる。`dns sync --serial-from` で管理中の `current` から次のserialを計算し、`dns diff` で適用前の差分を確認できる。
 - `cert renew` は既存のRSA CAを使い、指定した証明書の初回発行・期限更新・公開を行う。dry-runではCA秘密鍵を読まない。暗号化PEMはOpenSSLでメモリ上に復号する。[証明書更新の設定と運用](certificate-renewal.md)
 - `server.publication_refresh` は公開ストアを定期的に読み直す。署名を管理者として実行した場合も、新しい世代はストアの所有者に合わせて保存する。証明書更新用systemd timerの例を追加した。
 - `cert status` は公開ストア上の証明書の期限をローカルで監視する。配布サーバーに接続せず、公開リーフだけを読む。[監視コマンド](certificate-renewal.md#公開証明書の期限監視)
@@ -35,7 +36,7 @@
 ## 次の作業
 
 1. Keycloak 1ホストの証明書参照形式、更新後のTLS応答、切り戻しを隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
-2. 既存NSDゾーンと出力を比較し、静的レコードの統合と稼働ゾーンからのserial自動取得を検討する。[DNS仕様](SPEC/05-dns-pki.md)
+2. 既存NSDゾーンと出力を比較し、必要な固定レコードを移行する。管理ゾーンの追加・削除の手順を検討する。[DNS仕様](SPEC/05-dns-pki.md)
 3. 本番のCA保護方式と専用ユーザーを使い、隔離環境で更新timerから配布まで検証する。
 
 公開ストアの定期読み込みを設定した場合、登録・更新後に配布サーバーを再起動する必要はない。認可設定やTLS鍵などの変更は再起動で反映する。Keycloak、本番DNS、既存CAとの連携は別途確認する。

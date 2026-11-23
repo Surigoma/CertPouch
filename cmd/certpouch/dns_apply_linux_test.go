@@ -126,6 +126,13 @@ zone:
 	output.Reset()
 	diagnostic.Reset()
 	second := makeCandidate("192.0.2.11", 101)
+	if code := runDNSDiff([]string{"--candidate", second, "--zone-dir", managed}, &output, &diagnostic); code != 0 ||
+		!strings.Contains(output.String(), "svc.example.internal. IN A 192.0.2.11") ||
+		!strings.Contains(output.String(), "svc.example.internal. IN A 192.0.2.10") {
+		t.Fatalf("preview did not show both old and new record: %d, %s, %s", code, &output, &diagnostic)
+	}
+	output.Reset()
+	diagnostic.Reset()
 	if code := runDNSApply(ctx, []string{"--candidate", second, "--zone-dir", managed, "--nsd-config", conf, "--dns-address", control.address}, &output, &diagnostic); code != 0 {
 		t.Fatalf("apply exit %d: %s", code, &diagnostic)
 	}
@@ -136,6 +143,32 @@ zone:
 		if serial, err := control.ServedSerial(ctx, zone); err != nil || serial != 101 {
 			t.Fatalf("NSD served serial for %s: %d, %v", zone, serial, err)
 		}
+	}
+	cachePath := filepath.Join(base, "cache.json")
+	if err := os.WriteFile(cachePath, []byte(`{"valueRanges":[{"values":[["","192.0.2","11","svc","","","svc"]]}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	serialConfig := filepath.Join(base, "serial.yaml")
+	serialYAML := fmt.Sprintf(`
+dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: example.internal}
+zones:
+  primary: ns.example.net
+  mailbox: hostmaster.example.internal
+  nameservers: [ns.example.net]
+  ttl: 300
+  refresh: 3600
+  retry: 600
+  expire: 604800
+  negative_ttl: 300
+`, cachePath)
+	if err := os.WriteFile(serialConfig, []byte(serialYAML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	diagnostic.Reset()
+	if code := runDNSSync(ctx, []string{"--config", serialConfig, "--serial-from", managed, "--dry-run"}, &output, &diagnostic); code != 0 ||
+		strings.Count(output.String(), " ( 102 ") != 2 {
+		t.Fatalf("preview did not advance both managed serials: %d, %s, %s", code, &output, &diagnostic)
 	}
 	third := makeCandidate("192.0.2.12", 102)
 	if _, err := dns.Activate(ctx, managed, third, false, &failedNSDReload{nsdCommands: control}); err == nil ||

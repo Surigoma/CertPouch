@@ -18,6 +18,7 @@ type ZoneOptions struct {
 	TTL, Serial, Refresh, Retry, Expire, NegativeTTL uint32
 	PreviousSerials                                  map[string]uint32
 	AdvanceSerial                                    bool
+	StaticRecords                                    []StaticRecord
 }
 
 type Zone struct {
@@ -72,7 +73,10 @@ func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
 			sets[forward] = append(sets[forward], zoneRecord{name + ".", kind, addr.String()})
 		}
 	}
-	if err := verifyGlue(forward, nameservers, inventory); err != nil {
+	if err := appendStaticRecords(sets, forward, options.StaticRecords); err != nil {
+		return nil, err
+	}
+	if err := verifyGlue(forward, nameservers, sets[forward]); err != nil {
 		return nil, err
 	}
 	previous := make(map[string]uint32, len(options.PreviousSerials))
@@ -134,9 +138,15 @@ func reverseOwner(addr netip.Addr) (string, string) {
 	return zone, fmt.Sprintf("%d.%s.", octets[3], zone)
 }
 
-func verifyGlue(forward string, nameservers []string, inventory Inventory) error {
+func verifyGlue(forward string, nameservers []string, records []zoneRecord) error {
+	addresses := make(map[string]bool)
+	for _, record := range records {
+		if record.kind == "A" || record.kind == "AAAA" {
+			addresses[record.owner] = true
+		}
+	}
 	for _, ns := range nameservers {
-		if (ns == forward || strings.HasSuffix(ns, "."+forward)) && len(inventory.addresses[ns]) == 0 {
+		if (ns == forward || strings.HasSuffix(ns, "."+forward)) && !addresses[ns+"."] {
 			return fmt.Errorf("in-zone nameserver %s lacks an address record", ns)
 		}
 	}

@@ -12,3 +12,6 @@ zones:
   retry: 600
   expire: 604800
   negative_ttl: 300
+  # Optional static records, in addition to the inventory.
+  static_records:
+    - {owner: "www.example.internal.", type: "CNAME", value: "app.example.internal."}

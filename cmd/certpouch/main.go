@@ -32,6 +32,9 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "dns" && args[1] == "apply" {
 		return runDNSApply(ctx, args[2:], os.Stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "dns" && args[1] == "diff" {
+		return runDNSDiff(args[2:], os.Stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "cert" && args[1] == "publish" {
 		return runPublish(args[2:], os.Stdout, stderr)
 	}
@@ -48,7 +51,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return runStatus(args[1:], os.Stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "server" {
-		fmt.Fprintln(stderr, "Usage: certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch cert status --help\n       certpouch dns sync --help\n       certpouch dns apply --help")
+		fmt.Fprintln(stderr, "Usage: certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch cert status --help\n       certpouch dns sync --help\n       certpouch dns apply --help\n       certpouch dns diff --help")
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return 0
 		}

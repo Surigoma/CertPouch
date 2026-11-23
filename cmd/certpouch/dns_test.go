@@ -32,6 +32,8 @@ zones:
   retry: 600
   expire: 604800
   negative_ttl: 300
+  static_records:
+    - {owner: "_policy.example.internal", type: "TXT", value: "policy=private; version=1"}
 `, cache)), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +42,8 @@ zones:
 		t.Fatalf("preview exit %d: %s", code, &diagnostic)
 	}
 	if !strings.Contains(out.String(), "app.example.internal. IN A 192.0.2.10") ||
-		!strings.Contains(out.String(), "10.2.0.192.in-addr.arpa. IN PTR app.pvt.example.internal.") {
+		!strings.Contains(out.String(), "10.2.0.192.in-addr.arpa. IN PTR app.pvt.example.internal.") ||
+		!strings.Contains(out.String(), "_policy.example.internal. IN TXT \"policy=private; version=1\"") {
 		t.Fatalf("unexpected preview: %s", &out)
 	}
 	entries, err := os.ReadDir(base)

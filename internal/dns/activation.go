@@ -34,6 +34,34 @@ type ZoneSnapshot struct {
 var serialLine = regexp.MustCompile(`(?m)^@ IN SOA [^ \n]+ [^ \n]+ \( ([0-9]{1,10}) [0-9]+ [0-9]+ [0-9]+ [0-9]+ \)$`)
 var generationName = regexp.MustCompile(`^generation-[0-9]+$`)
 
+// ReadManagedSerials snapshots the SOA serials from the managed current link.
+// Activation separately verifies them against the authoritative listener.
+func ReadManagedSerials(directory string) (map[string]uint32, error) {
+	zones, err := readManagedSnapshot(directory)
+	if err != nil {
+		return nil, err
+	}
+	serials := make(map[string]uint32, len(zones))
+	for _, zone := range zones {
+		serials[zone.name] = zone.serial
+	}
+	return serials, nil
+}
+
+func readManagedSnapshot(directory string) ([]ZoneSnapshot, error) {
+	if !filepath.IsAbs(directory) {
+		return nil, fmt.Errorf("managed DNS directory must be absolute")
+	}
+	if err := managedDirectory(directory); err != nil {
+		return nil, err
+	}
+	current, err := os.Readlink(filepath.Join(directory, "current"))
+	if err != nil || !generationName.MatchString(current) {
+		return nil, fmt.Errorf("current must reference a managed DNS snapshot")
+	}
+	return readSnapshot(filepath.Join(directory, current))
+}
+
 // Activate installs a coordinated set of already rendered zone candidates.
 // initialize prepares an empty managed directory without contacting NSD.
 func Activate(ctx context.Context, root, candidate string, initialize bool, control ZoneControl) (result string, err error) {
@@ -214,8 +242,7 @@ func planActivation(old, next []ZoneSnapshot) ([]string, []ZoneSnapshot, error) 
 		if candidate.name != previous.name {
 			return nil, nil, fmt.Errorf("managed zone set changed; reconfigure NSD separately")
 		}
-		if bytes.Equal(candidate.body[:candidate.start], previous.body[:previous.start]) &&
-			bytes.Equal(candidate.body[candidate.end:], previous.body[previous.end:]) {
+		if sameZoneContent(candidate, previous) {
 			next[i] = previous
 			continue
 		}
