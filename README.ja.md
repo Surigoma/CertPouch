@@ -29,6 +29,7 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 | `certpouch status` | ローカルの証明書と配置状況を確認 |
 | `certpouch cert publish` | 発行済みの証明書を新しい配布世代として登録 |
 | `certpouch dns sync --dry-run` | DNS台帳から生成するNSD向けゾーンを確認 |
+| `certpouch dns fetch` | Google SheetsからDNS台帳を取得してキャッシュを更新 |
 | `certpouch dns apply` | 検証した候補を管理下のNSDへ適用 |
 | `certpouch cert renew` | 既存のプライベートCAで対象証明書を発行・更新 |
 | `certpouch cert status` | 公開ストア上の証明書の期限と状態を確認 |

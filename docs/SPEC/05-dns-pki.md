@@ -2,7 +2,7 @@
 
 この文書はPhase 2・3の設計範囲を示す。Phase 1で既存Python処理や証明書発行を置き換えない。
 
-Phase 1の配布認可では既存処理が保存したGoogle Sheetsのスナップショットを参照できる。[配布認可に使う台帳の列と設定](../dns-inventory.md)を参照。Google Sheetsへの直接接続とNSDへの適用は後続フェーズで扱う。
+配布認可ではGoogle Sheetsのスナップショットを参照できる。[配布認可に使う台帳の列と設定](../dns-inventory.md)を参照。Phase 2の `dns fetch` は読み取り専用のサービスアカウント認証で台帳を取得し、検証に成功した場合だけキャッシュを更新する。[Sheetsの取得設定](../sheets-fetch.md)
 
 Phase 2では、既存スナップショットまたはCSVから正引き・IPv4逆引きを生成する。前回serialが指定された場合は比較またはインクリメントを行う。`dns sync --stage-dir` では `nsd-checkzone` 済みの候補を保存し、`dns apply` では管理下のスナップショットへ切り替える。更新後は実際に配信されたserialを確認し、失敗時は旧レコードを新しいserialで切り戻す。[DNS候補の設定と適用](../dns-sync.md)
 

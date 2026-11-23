@@ -20,6 +20,10 @@ type Inventory struct {
 	addresses map[string][]netip.Addr
 }
 
+func (inventory Inventory) HostCount() int {
+	return len(inventory.addresses)
+}
+
 func NewInventory(records []Record) (Inventory, error) {
 	addresses := make(map[string][]netip.Addr)
 	for i, record := range records {

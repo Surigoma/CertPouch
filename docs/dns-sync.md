@@ -1,6 +1,6 @@
 # NSD向けゾーン生成
 
-`certpouch dns sync` は既存のGoogle Sheetsキャッシュまたはシートを個別にエクスポートしたCSVから候補ゾーンを生成する。[DNS設定例](../configs/dns.example.yaml)で、台帳のパス、正引きゾーン名、SOA、ネームサーバー、TTLとserialを指定する。CSVの場合は `dns_inventory.cache_file` を `csv_files: ["/path/to/export.csv"]` に置き換える。複数ファイルでは、シートごとに初期プレフィックスをリセットする。
+`certpouch dns sync` はGoogle Sheetsキャッシュまたはシートを個別にエクスポートしたCSVから候補ゾーンを生成する。キャッシュの更新には [`dns fetch`](sheets-fetch.md) を使える。[DNS設定例](../configs/dns.example.yaml)で、台帳のパス、正引きゾーン名、SOA、ネームサーバー、TTLとserialを指定する。CSVの場合は `dns_inventory.cache_file` を `csv_files: ["/path/to/export.csv"]` に置き換える。複数ファイルでは、シートごとに初期プレフィックスをリセットする。
 
 ```sh
 certpouch dns sync --config /etc/certpouch/dns.yaml --dry-run

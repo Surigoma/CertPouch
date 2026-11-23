@@ -29,6 +29,7 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 | `certpouch status` | Inspect local certificates and deployment status |
 | `certpouch cert publish` | Register an existing certificate as a new distribution generation |
 | `certpouch dns sync --dry-run` | Preview NSD zone files from the DNS inventory snapshot |
+| `certpouch dns fetch` | Refresh the inventory snapshot from Google Sheets |
 | `certpouch dns apply` | Activate a validated snapshot on a managed NSD server |
 | `certpouch cert renew` | Issue or renew configured certificates using an existing private CA |
 | `certpouch cert status` | Check the expiry and local state of published certificates |

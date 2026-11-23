@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically refresh the CertPouch DNS inventory
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=90s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
