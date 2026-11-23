@@ -20,4 +20,6 @@ certpouch cert publish --config /etc/certpouch/server.yaml \
 
 [サーバー用unit例](../configs/systemd/certpouch-server.service)は、`/usr/local/bin/certpouch` と `/etc/certpouch/server.yaml` を使い、専用の `certpouch` ユーザーとグループで実行する。利用前に実行ユーザーを用意し、設定とCAを読み取れるようにする。サーバーTLS秘密鍵、トークンハッシュ、0700の証明書ストアは専用ユーザーのみがアクセスできるようにする。
 
-unitを `/etc/systemd/system/` に置いたあと、`sudo systemctl daemon-reload` と `sudo systemctl enable --now certpouch-server.service` で起動する。登録はストアの所有者として別途実行し、成功後に `sudo systemctl restart certpouch-server.service` で反映する。unitは配布サーバーからのファイルシステム書き込みを制限する。設定例は非特権ポートを使用する。
+起動前に、実行ユーザーで `certpouch server --check-config --config /etc/certpouch/server.yaml` を実行する。設定、TLS証明書と鍵の組み合わせ、公開世代を読み取って検証し、ポートは開かない。
+
+unitを `/etc/systemd/system/` に置いたあと、`sudo systemctl daemon-reload` と `sudo systemctl enable --now certpouch-server.service` で起動する。登録はストアの所有者として別途実行し、設定と公開世代を再検証したあと `sudo systemctl restart certpouch-server.service` で反映する。unitは配布サーバーからのファイルシステム書き込みを制限する。設定例は非特権ポートを使用する。

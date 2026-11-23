@@ -181,6 +181,19 @@ certificates:
 		}
 	}
 	first := publish(firstFile, firstKeyFile)
+	if code := run(t.Context(), []string{"server", "--config", serverConfig, "--check-config"}, &diagnostic); code != 0 {
+		t.Fatalf("server preflight exit %d: %s", code, &diagnostic)
+	}
+	serverYAML, err := os.ReadFile(serverConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badTLS := write("server-mismatched-key.yaml", bytes.Replace(serverYAML, []byte(tlsKeyFile), []byte(firstKeyFile), 1))
+	diagnostic.Reset()
+	if code := run(t.Context(), []string{"server", "--config", badTLS, "--check-config"}, &diagnostic); code == 0 ||
+		!strings.Contains(diagnostic.String(), "check server TLS key pair") {
+		t.Fatalf("server preflight accepted a mismatched TLS key: %d, %s", code, &diagnostic)
+	}
 	var firstReload time.Time
 	func() {
 		stop := start()

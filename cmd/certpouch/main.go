@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -43,6 +44,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to the server YAML configuration")
+	check := flags.Bool("check-config", false, "validate configuration, TLS files, and published certificates without listening")
 	if err := flags.Parse(args[1:]); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -68,6 +70,14 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if *check {
+		if _, err := tls.LoadX509KeyPair(cfg.TLSCertificate, cfg.TLSPrivateKey); err != nil {
+			fmt.Fprintf(stderr, "check server TLS key pair: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "server configuration valid (%d published certificates)\n", len(publications))
+		return 0
 	}
 	if err := server.Run(ctx, cfg.Listen, cfg.TLSCertificate, cfg.TLSPrivateKey, handler); err != nil {
 		fmt.Fprintln(stderr, err)
