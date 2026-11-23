@@ -1,0 +1,14 @@
+dns_inventory:
+  cache_file: "/var/lib/dns-inventory/cache.json"
+  fallback_prefix: "192.0.2"
+  zone: "example.internal"
+zones:
+  primary: "ns1.example.net"
+  mailbox: "hostmaster.example.internal"
+  nameservers: ["ns1.example.net"]
+  ttl: 300
+  serial: 1
+  refresh: 3600
+  retry: 600
+  expire: 604800
+  negative_ttl: 300

@@ -25,10 +25,12 @@
 - 専用ユーザーで起動する配布サーバー用unit例を追加した。[サーバーの設定手順](server-publication.md)
 - `server --check-config` は待ち受けを開始せずに設定、TLS鍵ペア、公開世代を検証する。WSLでは同梱unitの実行ユーザーとパスをテスト用に差し替え、非特権ユーザーで起動しHTTPS healthが応答することを確認した。
 - クライアントの `service.verify_tls` を指定すると、サービスがアクティブ世代の証明書を返すことを配置後と復旧時に確認できる。[Keycloak向け設定例](client-deployment.md)
+- `dns sync` で既存キャッシュからNSD向けゾーン候補を生成できる。プレビューと `nsd-checkzone` による候補検証に対応する。[DNSゾーン生成手順](dns-sync.md)
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業
 
 1. Keycloak 1ホストの証明書参照形式、更新後のTLS応答、切り戻しを隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
+2. DNS候補を既存NSDゾーンと比較し、静的レコード、serial管理、適用・切り戻しを実装する。[DNS仕様](SPEC/05-dns-pki.md)
 
-登録を反映するには配布サーバーの再起動が必要。Keycloakとの連携は隔離環境で確認する。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。
+登録を反映するには配布サーバーの再起動が必要。Keycloakとの連携は隔離環境で確認する。DNSの稼働環境への適用とCAによる発行は未実装。

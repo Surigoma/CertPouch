@@ -4,6 +4,8 @@
 
 Phase 1の配布認可では既存処理が保存したGoogle Sheetsのスナップショットを参照できる。[配布認可に使う台帳の列と設定](../dns-inventory.md)を参照。Google Sheetsへの直接接続とNSDへの適用は後続フェーズで扱う。
 
+Phase 2の候補生成は実装済み。既存スナップショットから正引き・IPv4逆引きを生成し、ゾーンごとの前回serialが指定された場合は比較またはインクリメントを行う。`--dry-run` で表示し、`--stage-dir` で `nsd-checkzone` 済みの候補を保存できる。[DNS候補の設定と検証](../dns-sync.md)
+
 ## DNS要件（Phase 2）
 
 - Google Sheetsを初期のDNS在庫アダプターとする。
