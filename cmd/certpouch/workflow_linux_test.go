@@ -101,11 +101,46 @@ clients:
 `, addr, revocationFile, tlsCertFile, tlsKeyFile, caFile, store, caFile, cache, caFile, hashFile, clientFingerprint)))
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
+	keycloakHome := os.Getenv("CERTPOUCH_TEST_KEYCLOAK_HOME")
+	useKeycloak := realSystemd && keycloakHome != ""
+	action := "reload"
 	logPath := filepath.Join(base, "systemctl.log")
 	tlsVerification := ""
 	consumerAddress := ""
 	staleReload := filepath.Join(base, "stale-reload")
-	if realSystemd {
+	if useKeycloak {
+		action = "restart"
+		consumer, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		consumerAddress = consumer.Addr().String()
+		port := fmt.Sprint(consumer.Addr().(*net.TCPAddr).Port)
+		if err := consumer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		launcher, err := filepath.Abs(filepath.Join(keycloakHome, "bin", "kc.sh"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(launcher); err != nil {
+			t.Fatal(err)
+		}
+		preStart := write("keycloak-pre-start.sh", []byte(`#!/bin/sh
+set -eu
+if [ -f "$1" ]; then
+  rm -- "$1"
+  exit 1
+fi
+touch -- "$2"
+`))
+		current := filepath.Join(destination, "current")
+		certificate := filepath.Join(current, "fullchain.pem")
+		command := keycloakTestCommand(launcher, port, certificate, filepath.Join(current, "private-key.pem"))
+		unit = startKeycloakTestUnit(t, certificate, command,
+			"ExecStartPre=/bin/sh "+strings.Join([]string{preStart, staleReload, logPath}, " "))
+		tlsVerification = fmt.Sprintf("\n      verify_tls: {address: %q, server_name: web.example.internal, timeout: 2m}", consumerAddress)
+	} else if realSystemd {
 		served := filepath.Join(base, "served")
 		consumer, err := net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
@@ -174,8 +209,8 @@ certificates:
     issuer_certificate: %q
     service:
       unit: %q
-      action: reload%s
-`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, unit, tlsVerification)))
+      action: %s%s
+`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, unit, action, tlsVerification)))
 	var output, diagnostic bytes.Buffer
 	publish := func(cert, key string) string {
 		t.Helper()
@@ -329,9 +364,13 @@ certificates:
 			write("stale-reload", nil)
 			output.Reset()
 			diagnostic.Reset()
+			expectedFailure := "different leaf certificate"
+			if useKeycloak {
+				expectedFailure = "systemctl restart " + unit
+			}
 			if code := runPull(t.Context(), []string{"--config", clientConfig}, &output, &diagnostic); code == 0 ||
-				!strings.Contains(diagnostic.String(), "different leaf certificate") {
-				t.Fatalf("expected a TLS mismatch during reload: %d, %s", code, &diagnostic)
+				!strings.Contains(diagnostic.String(), expectedFailure) {
+				t.Fatalf("expected service activation failure %q: %d, %s", expectedFailure, code, &diagnostic)
 			}
 			active, err := os.Readlink(filepath.Join(destination, "current"))
 			if err != nil || filepath.Base(active) != first {
@@ -357,6 +396,8 @@ certificates:
 			if err := probe.Wait(t.Context(), firstLeaf.Fingerprint); err != nil {
 				t.Fatalf("verify restored certificate: %v", err)
 			}
+		}
+		if realSystemd && !useKeycloak {
 			runWorkflowTimer(t, base, unit, clientConfig, second)
 		} else {
 			pull("update", second, false)

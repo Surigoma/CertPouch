@@ -37,6 +37,10 @@ CERTPOUCH_TEST_KEYCLOAK_HOME=/path/to/disposable/keycloak \
   go test ./cmd/certpouch -run '^TestKeycloakCertificateDeployment$' -v -count=1
 ```
 
+隔離したsystemd環境で `CERTPOUCH_TEST_SYSTEMD=1` も指定すると、一時サービスを作成し、Pullと同じサービス再起動とTLS照合を使って検証する。実行ユーザーには一時サービスを作成・操作できる権限が必要。
+
+同じ環境変数を指定して `TestLinuxPublicationAndPullWorkflow` を実行すると、テストCAでの証明書公開から、配布APIを使う初回Pull、Keycloakの再起動失敗後の切り戻し、更新の再試行まで確認できる。失敗は一時ユニットの起動前処理で一度だけ発生させる。
+
 サービス操作に失敗すると、以前の世代がある場合は `current` を元に戻してサービスを再反映する。異常終了後の次回Pullは、サーバーへ接続する前に `.pull-lock/recovery` を調べる。記録と旧世代のファイルを確認できれば、旧世代へ切り戻してサービスを再反映してから同期を続ける。プレビューでは復旧処理は行わない。
 
 旧世代がない初回失敗、記録の破損、世代の不一致、再反映失敗は手動復旧が必要。記録には旧世代と新世代への相対パスが1行ずつ入る。Pullが実行中でないことを確認し、`current`、サービスの状態、TLS応答を調べる。初回失敗では退避した設定を使う。再試行する場合は、失敗世代が使われていないことを確認して管理領域から退避する。正常なサービス状態を確認してから復旧記録と `.pull-lock` を取り除く。
