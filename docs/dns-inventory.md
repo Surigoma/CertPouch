@@ -6,7 +6,7 @@
 
 `certpouch dns fetch` を使い、Google Sheetsからキャッシュを直接更新することもできる。[取得設定と手順](sheets-fetch.md)
 
-サーバー設定に次の項目を加える。クライアントごとの `allowed_ips`、`allowed_certificates`、旧案の `allowed_hosts` はDNS台帳モードでは削除する。サーバーの `certificates` は引き続き公開対象とSAN・発行者の検証に使う。例のパス、ゾーン、初期IPv4プレフィックスは環境に合わせて設定する。
+サーバー設定に次の項目を加える。台帳モードではクライアントごとの `allowed_ips` と `allowed_certificates` を省く。サーバーの `certificates` には公開対象とSAN・発行者の検証条件を設定する。`init server` でも台帳モードの設定を生成できる。[初回導入](quickstart.md)
 
 ```yaml
 dns_inventory:
@@ -22,7 +22,30 @@ clients:
       web.example.internal: ["backup.pvt.example.internal"]
 ```
 
-対象範囲ごとにB列のIPv4プレフィックスを保持し、C列の末尾オクテットと連結する。A列が空でC列に値がある行を対象とし、D列の名前には `.pvt` とゾーン名を補う。G列のカンマ区切りの別名にもゾーン名を補う。現在のアダプターはASCIIのホスト名を扱う。国際化ドメイン名は未対応。
+## 台帳の記入例
+
+次の例では `zone: example.internal` を使います。1行目は見出しで、Google Sheetsから取得する範囲は `A2:G4` です。表の空欄はシートでも空のセルにします。
+
+| A 除外マーク | B IPv4プレフィックス | C IPv4末尾 | D 機器名 | E 自由欄 | F 自由欄 | G 別名 |
+| --- | --- | --- | --- | --- | --- | --- |
+|  | 192.0.2 | 10 | web01 |  |  | web, portal |
+|  |  | 11 | backup |  |  |  |
+| x |  | 12 | retired |  |  | old |
+
+- `web01` の行は `web01.pvt.example.internal`、`web.example.internal`、`portal.example.internal` を `192.0.2.10` に対応付けます。
+- `backup` の行は直前のIPv4プレフィックスを使い、`backup.pvt.example.internal` を `192.0.2.11` に対応付けます。
+- `retired` は除外マークがあるため台帳に入りません。証明書名が `web.example.internal` の場合、通常は `192.0.2.10` から取得できます。設定例の例外を追加すると、`backup` のIPからも取得できます。
+
+プレフィックスをまだ指定していない行には、設定の `fallback_prefix` を使います。プレフィックスの引き継ぎは取得範囲またはCSVごとにリセットします。末尾オクテットや機器名が空の行はアドレスを生成しません。E・Fの内容は読み取りに使いません。ホスト名はASCIIで入力してください。
+
+CSVで同じ表を使う場合は、別名のカンマを含むセルを二重引用符で囲みます。
+
+```csv
+除外マーク,IPv4プレフィックス,IPv4末尾,機器名,自由欄,自由欄,別名
+,192.0.2,10,web01,,,"web, portal"
+,,11,backup,,,
+x,,12,retired,,,old
+```
 
 既定では、台帳に同名のレコードがない証明書へのアクセスは拒否する。例外設定のホストが台帳にない場合やファイルが不正な場合は起動に失敗する。
 

@@ -56,7 +56,8 @@ Most commands use `--config PATH`. DNS activation uses an explicit candidate and
 
 ## Documentation and license
 
-- [Project specification](SPEC.md)
+- [Current implementation specification](SPEC.md)
 - [Detailed specifications (Japanese)](docs/SPEC/README.md)
+- [DNS inventory example (Japanese)](docs/dns-inventory.md#台帳の記入例)
 - [Mutual TLS configuration (Japanese)](docs/mtls.md)
 - [MIT License](LICENSE)

@@ -2,7 +2,7 @@
 
 着手前に `git status --short` で現在の状態を確認する。作業ツリーにある既存の `.gitignore` 変更と、`.orig/` の移行資料は作業者の管理下にある。移行資料に本番情報が含まれる可能性があるため、コミットやログ出力の対象にしない。
 
-現在は、証明書の登録・発行からHTTPS配布、LinuxクライアントでのPull・配置・切り戻しまで実装済み。DNSはSheetsまたはCSVの読み込み、NSD向け候補生成、適用と切り戻しに対応する。次に必要なのは、テスト用証明書と権限で隔離環境に導入し、実際の利用サービスで更新と復旧を確認すること。
+証明書の登録・発行、HTTPS配布、LinuxクライアントでのPull・配置・切り戻し、SheetsまたはCSVからのNSD候補生成と適用に対応する。操作を始めるときは[初回導入](quickstart.md)、動作を確認するときは[詳細仕様](SPEC/README.md)を参照する。
 
 ## 実装済み
 
@@ -13,7 +13,8 @@
 - `internal/server` にTLS 1.2以上での起動とcontext終了時の停止処理を追加した。
 - Ginのプロキシ信頼と自動リダイレクトを無効化し、IP許可判定は接続元アドレスを使う。
 - `internal/storage` は管理対象の `current` リンクを解決して、配布APIが検証する証明書世代を読み出す。
-- `certpouch server --config PATH` はYAML設定を読み込み、ストアを初期化してHTTPS配布サーバーを起動する。構成例は [server.example.yaml](../configs/server.example.yaml) を参照。
+- `init client` と `init server` は新規ディレクトリに検証済みの初期設定と配置先・公開ストアを作成する。配布サーバーへ渡す資格情報はクライアントトークンのハッシュ。[初期化手順](quickstart.md)
+- `certpouch server --config PATH` はYAMLと既存の公開ストアを検証してHTTPS配布サーバーを起動する。構成例は [server.example.yaml](../configs/server.example.yaml) を参照。
 - DNS台帳モードでは、Google Sheetsの既存キャッシュにある証明書名と接続元IPの一致で取得を認可する。別ホストへの許可はクライアント・証明書単位の例外設定で追加する。[DNS台帳の設定手順](dns-inventory.md)
 - `internal/client` はHTTPSで在庫を取得し、選択世代のダウンロードを固定したうえでチェックサム・フィンガープリント・ローカル証明書ポリシーを検証する。
 - `certpouch pull --dry-run --config PATH` は、許可された在庫と設定済み配置先を比較し、`install`、`update`、`unchanged` を表示する。[クライアント設定例](../configs/client.example.yaml)
@@ -37,6 +38,8 @@
 - `cert renew` は既存のRSA CAを使い、指定した証明書の初回発行・期限更新・公開を行う。dry-runではCA秘密鍵を読まない。暗号化PEMはOpenSSLでメモリ上に復号する。[証明書更新の設定と運用](certificate-renewal.md)
 - `server.publication_refresh` は公開ストアを定期的に読み直す。署名を管理者として実行した場合も、新しい世代はストアの所有者に合わせて保存する。証明書更新用systemd timerの例を追加した。
 - `cert status` は公開ストア上の証明書の期限をローカルで監視する。配布サーバーに接続せず、公開リーフだけを読む。[監視コマンド](certificate-renewal.md#公開証明書の期限監視)
+- 配布APIは一覧・メタデータ・ダウンロードの結果を構造化ログに記録する。定期的なストア検証に失敗したときはhealthが503を返す。[配布API仕様](SPEC/03-distribution-api.md)
+- Release PleaseがリリースPRを管理する。マージ後にタグと下書きを作成し、検証済みLinux amd64・arm64パッケージを添付する。[リリース手順](release-and-acceptance.md)
 - WSLの一時的なsystemdタイマーで、テスト用中間CAによる期限切れ証明書の更新を確認した。`CERTPOUCH_TEST_SYSTEMD=1 go test -run TestRenewWithPrivateCA ./cmd/certpouch` で再現できる。
 
 ## 検証済みの範囲

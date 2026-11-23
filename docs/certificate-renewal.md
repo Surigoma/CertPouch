@@ -1,6 +1,6 @@
 # 既存のプライベートCAによる証明書更新
 
-`cert renew` は、既存のプライベートCAで期限が近い証明書を更新し、検証済みの新しい世代を配布ストアに登録する。対象は[更新設定例](../configs/renewal.example.yaml)のプロファイルで明示する。対象名、SAN、期待する発行者、信頼するルートはサーバー設定の `certificates` と `storage.trust_ca_file` を使う。
+`cert renew` は、既存CAで未発行の証明書を発行し、期限が近い証明書を更新する。検証済みの新世代は配布ストアに登録する。対象は[更新設定例](../configs/renewal.example.yaml)のプロファイルで明示する。対象名、SAN、期待する発行者、信頼するルートはサーバー設定の `certificates` と `storage.trust_ca_file` を使う。
 
 ```sh
 certpouch cert renew --dry-run --config /etc/certpouch/server.yaml \

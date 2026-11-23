@@ -55,7 +55,7 @@ certpouch dns apply --initialize \
   --zone-dir /var/lib/certpouch/nsd-zones
 ```
 
-NSDの各ゾーン定義を `/var/lib/certpouch/nsd-zones/current/<ゾーン名>.zone` に向け、使用するNSDユーザーに管理ディレクトリの通過権限とファイルの読み取り権限を与える。候補は0640、世代ディレクトリは0750。NSDと別ユーザーで適用する場合は、管理ディレクトリに共有グループとsetgidを設定してグループを継承させる。リモート制御を有効にし、NSDが最初の世代を配信していることを確認する。
+NSDの各ゾーン定義を `/var/lib/certpouch/nsd-zones/current/<ゾーン名>.zone` に向け、使用するNSDユーザーに管理ディレクトリの通過権限とファイルの読み取り権限を与える。適用後の世代ではゾーンファイルが0640、世代ディレクトリが0750になる。NSDと別ユーザーで適用する場合は、管理ディレクトリに共有グループとsetgidを設定してグループを継承させる。リモート制御を有効にし、NSDが最初の世代を配信していることを確認する。
 
 初回登録後は、適用前に `dns diff --candidate PATH --zone-dir PATH` で現在の世代と候補を比較できる。ゾーンごとに追加・削除された行と新旧serialをJSONで表示する。serialだけの変更は `serial_only` として表示し、差分確認でファイルやNSDの状態は変更しない。
 

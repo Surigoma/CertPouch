@@ -45,7 +45,21 @@ sudo certpouch init server --out /etc/certpouch/server-init \
 
 JSONの台帳キャッシュを使う場合は `--csv` の代わりに `--cache` を指定します。DNS SANは証明書名が既定です。異なる場合は両コマンドに `--dns-san` を指定します。設定と資格情報は0600で作成され、既存の出力先には上書きしません。
 
-この例の公開ストアは `/etc/certpouch/server-init/publications`、クライアントの配置先は `/etc/certpouch/client-init/deployment` です。配布サーバーと取得側が別ユーザーで動く場合は、下記の権限手順に従い、実行ユーザーに必要なファイルとディレクトリだけを開放します。設定ファイルを指定するコマンドやsystemdユニットには生成されたYAMLのパスを指定します。初期化はサービスの起動や証明書の登録を行わないため、手順3の証明書登録と起動へ進みます。
+この例の公開ストアは `/etc/certpouch/server-init/publications`、クライアントの配置先は `/etc/certpouch/client-init/deployment` です。下記コマンド例の `/etc/certpouch/server.yaml` と `/etc/certpouch/client.yaml` は、それぞれ `/etc/certpouch/server-init/server.yaml` と `/etc/certpouch/client-init/client.yaml` に置き換えます。systemdユニットの `--config` も同じパスに変更します。
+
+生成ディレクトリは0700、設定と資格情報は0600です。実行ユーザーが初期化を行ったユーザーと異なる場合は、下記の権限手順に従って読取・通過権限を設定します。公開ストアは配布サーバーの専用ユーザーがアクセスできるようにします。初期化後は手順3の証明書登録と起動へ進みます。手順2と手順3・4のYAML手作業は省略できます。
+
+この例のようにrootでサーバーを初期化し、unitを `certpouch` ユーザーで実行する場合は、専用ユーザーを作成したあと、配布サーバーで次を実行します。
+
+```sh
+sudo chgrp certpouch /etc/certpouch/server-init /etc/certpouch/server-init/server.yaml
+sudo chmod 0750 /etc/certpouch/server-init
+sudo chmod 0640 /etc/certpouch/server-init/server.yaml
+sudo chown certpouch:certpouch /etc/certpouch/server-init/client.token.sha256 \
+  /etc/certpouch/server-init/publications
+```
+
+サーバー用のTLS秘密鍵、CA、台帳は `init` がコピーしないため、参照先の権限も確認します。
 
 ## 2. 手動でクライアント資格情報を作る
 
@@ -71,7 +85,7 @@ sha256sum "$credentials_dir/client.token" | awk '{print $1}' > "$credentials_dir
 | `server.tls.certificate`, `server.tls.private_key` | 配布サーバー自身のHTTPS証明書と秘密鍵の絶対パス |
 | `storage.certificate_dir`, `storage.trust_ca_file` | 公開世代の保存先と、配布対象を検証するCAバンドル |
 | `dns_inventory.cache_file` | 台帳のJSONキャッシュへの絶対パス。CSVの場合は代わりに `csv_files: ["/path/to/inventory.csv"]` を設定 |
-| `dns_inventory.zone`, `dns_inventory.fallback_prefix` | 台帳上の名前に補うゾーン名と、台帳でプレフィックスが指定される前に使うIPv4プレフィックス。[列と名前の組み立て規則](dns-inventory.md) |
+| `dns_inventory.zone`, `dns_inventory.fallback_prefix` | 台帳上の名前に補うゾーン名と、台帳でプレフィックスが指定される前に使うIPv4プレフィックス。[台帳の記入例](dns-inventory.md#台帳の記入例) |
 | `certificates[0].name`, `expected_dns_sans`, `issuer_certificate` | 台帳の完全修飾名（例 `web.example.internal`）、リーフに期待するDNS SAN、直接発行者の証明書 |
 | `clients[0].id`, `enabled`, `token_hash_file` | クライアントID（例 `web-server-01`）、`true`、手順2で置いたハッシュの絶対パス |
 

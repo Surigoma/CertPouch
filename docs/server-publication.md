@@ -1,6 +1,6 @@
 # サーバーへの証明書登録
 
-Linux上で、既存CAが発行したリーフ証明書と対応する秘密鍵を `cert publish` で登録する。対象の論理名と検証するSAN・発行者を、事前に[サーバー設定](../configs/server.example.yaml)の `certificates` に設定する。
+Linux上で、既存CAが発行したリーフ証明書と対応する秘密鍵を `cert publish` で登録する。対象の論理名と検証するSAN・発行者を、事前に[サーバー設定](../configs/server.example.yaml)の `certificates` に設定する。`init server` を使った場合は、以下の `--config` とunitの `ExecStart` に生成した `server.yaml` のパスを指定する。[初回導入](quickstart.md)
 
 ```sh
 certpouch cert publish --config /etc/certpouch/server.yaml \
