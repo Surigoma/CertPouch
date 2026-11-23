@@ -21,6 +21,7 @@ func runDNSSync(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	dryRun := flags.Bool("dry-run", false, "render candidate zones to stdout")
 	stageDir := flags.String("stage-dir", "", "parent directory for a new nsd-checkzone-validated candidate")
 	serialFrom := flags.String("serial-from", "", "advance the serials of the current managed DNS snapshot")
+	serialFromBaseline := flags.String("serial-from-baseline", "", "advance the serials of a staged DNS snapshot")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -28,11 +29,12 @@ func runDNSSync(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return 2
 	}
 	if *path == "" || flags.NArg() != 0 || (*dryRun == (*stageDir != "")) ||
-		(*stageDir != "" && !filepath.IsAbs(*stageDir)) {
+		(*stageDir != "" && !filepath.IsAbs(*stageDir)) ||
+		(*serialFromBaseline != "" && (*serialFrom != "" || !filepath.IsAbs(*serialFromBaseline))) {
 		flags.Usage()
 		return 2
 	}
-	zones, err := config.LoadDNSZones(*path, *serialFrom)
+	zones, err := config.LoadDNSZones(*path, *serialFrom, *serialFromBaseline)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

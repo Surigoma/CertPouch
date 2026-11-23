@@ -8,6 +8,8 @@ Phase 2では、既存スナップショットまたはCSVから正引き・IPv4
 
 `dns sync --serial-from` は管理下の現在世代からSOA serialを取得する。`zones.static_records` で台帳外の固定レコードを追加し、CNAMEの衝突と循環を検証する。適用前に `dns diff` で候補との差分とserialを確認できる。
 
+NSD登録前は、`dns diff --baseline` で生成済みスナップショット同士を比較できる。古い候補に含まれる各ゾーンのserialから更新候補を作る場合は `dns sync --serial-from-baseline` を使う。
+
 ## DNS要件（Phase 2）
 
 - Google Sheetsを初期のDNS在庫アダプターとする。

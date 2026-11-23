@@ -36,6 +36,15 @@ static_records:
 
 既存のゾーンファイルをそのまま取り込む機能はない。移行前に必要な固定レコードを設定へ移し、既存ゾーンと生成結果を比較する。
 
+Linuxでは、CertPouch形式で保存した候補があれば、NSDの初期登録前でも比較できる。基準と候補には `dns sync --stage-dir` が出力したディレクトリの絶対パスを指定する。追加・削除されたゾーンとレコードをJSONで確認できる。
+
+```sh
+certpouch dns diff --baseline /var/lib/certpouch/staging/old \
+  --candidate /var/lib/certpouch/staging/new
+```
+
+同じゾーンを生成し直す場合、`dns sync --serial-from-baseline PATH` で基準のSOA serialをゾーンごとに1進める。このオプションを使うときは、設定の `zones.serial` と `zones.previous_serials` を省略する。基準にないゾーンを追加するときは、設定側でserialを指定する。
+
 ## NSDへの適用
 
 適用コマンドはLinuxの専用管理ディレクトリを使用する。既存のゾーン定義や静的レコードと候補を比較してから、空の管理ディレクトリに最初の候補を登録する。初期登録はNSDに接続しない。

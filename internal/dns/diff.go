@@ -20,12 +20,25 @@ type ZoneChange struct {
 
 // DiffSnapshots compares a local candidate to current without querying NSD.
 func DiffSnapshots(directory, candidate string) ([]ZoneChange, error) {
-	if !filepath.IsAbs(candidate) {
-		return nil, fmt.Errorf("candidate directory must be absolute")
-	}
 	old, err := readManagedSnapshot(directory)
 	if err != nil {
 		return nil, fmt.Errorf("read current snapshot: %w", err)
+	}
+	return diffCandidate(old, candidate)
+}
+
+// DiffCandidates compares two staged snapshots before either one is managed.
+func DiffCandidates(baseline, candidate string) ([]ZoneChange, error) {
+	old, err := readSnapshot(baseline)
+	if err != nil {
+		return nil, fmt.Errorf("read baseline snapshot: %w", err)
+	}
+	return diffCandidate(old, candidate)
+}
+
+func diffCandidate(old []ZoneSnapshot, candidate string) ([]ZoneChange, error) {
+	if !filepath.IsAbs(candidate) {
+		return nil, fmt.Errorf("candidate directory must be absolute")
 	}
 	next, err := readSnapshot(candidate)
 	if err != nil {

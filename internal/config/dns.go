@@ -29,7 +29,7 @@ type dnsDocument struct {
 	} `yaml:"zones"`
 }
 
-func LoadDNSZones(path, serialDirectory string) ([]dns.Zone, error) {
+func LoadDNSZones(path, serialDirectory, baselineDirectory string) ([]dns.Zone, error) {
 	raw, err := readFile(path, false, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("read DNS config: %w", err)
@@ -38,11 +38,15 @@ func LoadDNSZones(path, serialDirectory string) ([]dns.Zone, error) {
 	if err := decodeYAML(raw, &doc); err != nil {
 		return nil, err
 	}
-	if serialDirectory != "" {
+	if serialDirectory != "" || baselineDirectory != "" {
 		if doc.Zones.Serial != nil || len(doc.Zones.PreviousSerials) != 0 {
-			return nil, fmt.Errorf("--serial-from cannot be combined with zones.serial or zones.previous_serials")
+			return nil, fmt.Errorf("a serial source cannot be combined with zones.serial or zones.previous_serials")
 		}
-		doc.Zones.PreviousSerials, err = dns.ReadManagedSerials(serialDirectory)
+		if baselineDirectory != "" {
+			doc.Zones.PreviousSerials, err = dns.ReadCandidateSerials(baselineDirectory)
+		} else {
+			doc.Zones.PreviousSerials, err = dns.ReadManagedSerials(serialDirectory)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read current zone serials: %w", err)
 		}

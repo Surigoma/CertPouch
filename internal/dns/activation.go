@@ -41,11 +41,24 @@ func ReadManagedSerials(directory string) (map[string]uint32, error) {
 	if err != nil {
 		return nil, err
 	}
+	return snapshotSerials(zones), nil
+}
+
+// ReadCandidateSerials reads SOA serials from a staged snapshot.
+func ReadCandidateSerials(directory string) (map[string]uint32, error) {
+	zones, err := readSnapshot(directory)
+	if err != nil {
+		return nil, err
+	}
+	return snapshotSerials(zones), nil
+}
+
+func snapshotSerials(zones []ZoneSnapshot) map[string]uint32 {
 	serials := make(map[string]uint32, len(zones))
 	for _, zone := range zones {
 		serials[zone.name] = zone.serial
 	}
-	return serials, nil
+	return serials
 }
 
 func readManagedSnapshot(directory string) ([]ZoneSnapshot, error) {
@@ -154,6 +167,9 @@ func Activate(ctx context.Context, root, candidate string, initialize bool, cont
 }
 
 func readSnapshot(dir string) ([]ZoneSnapshot, error) {
+	if !filepath.IsAbs(dir) {
+		return nil, fmt.Errorf("zone snapshot directory must be absolute")
+	}
 	if err := managedDirectory(dir); err != nil {
 		return nil, err
 	}

@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Surigoma/CertPouch/internal/dns"
 )
 
 func TestDNSSyncRenderAndStage(t *testing.T) {
@@ -50,6 +54,39 @@ zones:
 	if err != nil || len(entries) != 2 {
 		t.Fatal("preview wrote files")
 	}
+	t.Run("advance serials from a staged baseline", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("DNS snapshots use Linux file permissions")
+		}
+		baseline := t.TempDir()
+		for zone, serial := range map[string]uint32{"example.internal": 10, "2.0.192.in-addr.arpa": 20} {
+			body := fmt.Sprintf("$ORIGIN %s.\n$TTL 300\n@ IN SOA ns1.example.net. hostmaster.example.internal. ( %d 3600 600 604800 300 )\n", zone, serial)
+			if err := os.WriteFile(filepath.Join(baseline, zone+".zone"), []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		args := []string{"--config", config, "--dry-run", "--serial-from-baseline", baseline}
+		var out, diagnostic bytes.Buffer
+		if code := runDNSSync(t.Context(), args, &out, &diagnostic); code != 1 {
+			t.Fatalf("sync accepted two serial sources: %d", code)
+		}
+		raw, err := os.ReadFile(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configWithoutSerial := filepath.Join(t.TempDir(), "dns.yaml")
+		if err := os.WriteFile(configWithoutSerial, bytes.Replace(raw, []byte("  serial: 1\n"), nil, 1), 0600); err != nil {
+			t.Fatal(err)
+		}
+		args[1] = configWithoutSerial
+		diagnostic.Reset()
+		if code := runDNSSync(t.Context(), args, &out, &diagnostic); code != 0 {
+			t.Fatalf("sync exit %d: %s", code, &diagnostic)
+		}
+		if !strings.Contains(out.String(), "( 11 3600") || !strings.Contains(out.String(), "( 21 3600") {
+			t.Fatalf("unexpected zone serials: %s", &out)
+		}
+	})
 	t.Run("native NSD validation", func(t *testing.T) {
 		if _, err := exec.LookPath("nsd-checkzone"); err != nil {
 			t.Skip("nsd-checkzone is not installed")
@@ -66,4 +103,41 @@ zones:
 			}
 		}
 	})
+}
+
+func TestDNSDiffBeforeInitialization(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("DNS snapshots use Linux file permissions")
+	}
+	baseline, candidate := t.TempDir(), t.TempDir()
+	writeZone := func(dir, zone string, serial int, record string) {
+		t.Helper()
+		body := fmt.Sprintf("$ORIGIN %s.\n$TTL 300\n@ IN SOA ns.example.net. hostmaster.example.net. ( %d 3600 600 86400 300 )\n%s\n", zone, serial, record)
+		if err := os.WriteFile(filepath.Join(dir, zone+".zone"), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeZone(baseline, "example.internal", 7, "@ IN NS ns.example.net.")
+	writeZone(candidate, "example.internal", 8, "@ IN NS ns.example.net.")
+	writeZone(baseline, "old.example.internal", 7, "@ IN TXT \"old\"")
+	writeZone(candidate, "new.example.internal", 8, "@ IN TXT \"new\"")
+
+	var out, diagnostic bytes.Buffer
+	args := []string{"--baseline", baseline, "--candidate", candidate}
+	if code := runDNSDiff(args, &out, &diagnostic); code != 0 {
+		t.Fatalf("diff exit %d: %s", code, &diagnostic)
+	}
+	var changes []dns.ZoneChange
+	if err := json.Unmarshal(out.Bytes(), &changes); err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 3 || changes[0].State != "serial_only" || changes[0].CurrentSerial == nil ||
+		*changes[0].CurrentSerial != 7 || changes[0].CandidateSerial == nil || *changes[0].CandidateSerial != 8 ||
+		changes[1].State != "added" || len(changes[1].Added) == 0 ||
+		changes[2].State != "removed" || len(changes[2].Removed) == 0 {
+		t.Fatalf("unexpected changes: %s", &out)
+	}
+	if code := runDNSDiff(append(args, "--zone-dir", baseline), &out, &diagnostic); code != 2 {
+		t.Fatalf("diff accepted conflicting baseline sources: %d", code)
+	}
 }
