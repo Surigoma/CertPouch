@@ -2,6 +2,7 @@
 package distribution
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -149,8 +150,8 @@ func (h *Handler) newRouter() (*gin.Engine, error) {
 		writeJSON(c.Writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	router.GET(inventoryPath, h.inventory)
-	router.GET(inventoryPath+"/:name/metadata", h.withCertificate(h.metadata))
-	router.GET(inventoryPath+"/:name/download", h.withCertificate(h.download))
+	router.GET(inventoryPath+"/:name/metadata", h.withCertificate("metadata", h.metadata))
+	router.GET(inventoryPath+"/:name/download", h.withCertificate("download", h.download))
 	router.NoRoute(func(c *gin.Context) {
 		if path, ok := strings.CutPrefix(c.Request.URL.Path, inventoryPath+"/"); ok {
 			name, action, hasAction := strings.Cut(path, "/")
@@ -183,7 +184,7 @@ func (h *Handler) checkRequest(c *gin.Context) {
 	}
 	client, ok := h.authenticate(r)
 	if !ok {
-		h.logger.Warn("distribution request rejected", "operation", "authenticate", "result", "denied", "error_category", "authentication")
+		h.logOperation("authenticate", "", "", "denied", "authentication")
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		c.Abort()
@@ -201,24 +202,31 @@ func (h *Handler) inventory(c *gin.Context) {
 			list = append(list, entry.metadata)
 		}
 	}
-	writeJSON(c.Writer, http.StatusOK, map[string][]Metadata{"certificates": list})
+	err := writeJSON(c.Writer, http.StatusOK, map[string][]Metadata{"certificates": list})
+	h.logResponse("inventory", client.ID, "", err)
 }
 
 func validCertificatePath(r *http.Request, name string) bool {
 	return namePattern.MatchString(name) && !strings.Contains(strings.ToLower(r.URL.EscapedPath()), "%2f")
 }
 
-func (h *Handler) withCertificate(next func(http.ResponseWriter, *http.Request, string, string, time.Time)) gin.HandlerFunc {
+func (h *Handler) withCertificate(operation string, next func(http.ResponseWriter, *http.Request, string, string, time.Time)) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		client := c.MustGet(clientKey).(Client)
 		name := c.Param("name")
 		if !validCertificatePath(c.Request, name) {
+			h.logOperation(operation, client.ID, "", "denied", "invalid_request")
 			writeError(c.Writer, http.StatusBadRequest, "invalid_request")
 			return
 		}
-		client := c.MustGet(clientKey).(Client)
 		if _, allowed := sort.Find(len(client.AllowedCertificates), func(i int) int {
 			return strings.Compare(name, client.AllowedCertificates[i])
 		}); !allowed || h.catalog.current[name] == nil {
+			logName := ""
+			if h.catalog.current[name] != nil {
+				logName = name
+			}
+			h.logOperation(operation, client.ID, logName, "denied", "certificate_unavailable")
 			writeError(c.Writer, http.StatusNotFound, "not_found")
 			return
 		}
@@ -226,34 +234,51 @@ func (h *Handler) withCertificate(next func(http.ResponseWriter, *http.Request, 
 	}
 }
 
-func (h *Handler) metadata(w http.ResponseWriter, _ *http.Request, _ string, name string, now time.Time) {
+func (h *Handler) metadata(w http.ResponseWriter, _ *http.Request, clientID, name string, now time.Time) {
 	entry := h.catalog.current[name]
 	if !entry.available(now) {
+		h.logOperation("metadata", clientID, name, "denied", "certificate_unavailable")
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	writeJSON(w, http.StatusOK, entry.metadata)
+	h.logResponse("metadata", clientID, name, writeJSON(w, http.StatusOK, entry.metadata))
 }
 
 func (h *Handler) download(w http.ResponseWriter, r *http.Request, clientID, name string, now time.Time) {
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	versions := query["version"]
 	if err != nil || len(query) != 1 || len(versions) != 1 || !versionPattern.MatchString(versions[0]) {
+		h.logOperation("download", clientID, name, "denied", "invalid_request")
 		writeError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
 	entry := h.catalog.versions[name][versions[0]]
 	if !entry.available(now) {
+		h.logOperation("download", clientID, name, "denied", "version_unavailable")
 		writeError(w, http.StatusConflict, "version_unavailable")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(entry.body)
+	h.logResponse("download", clientID, name, err)
+}
+
+func (h *Handler) logResponse(operation, clientID, name string, err error) {
 	if err != nil {
-		h.logger.Warn("certificate response interrupted", "client_id", clientID, "certificate_name", name, "operation", "download", "result", "failed", "error_category", "transport")
+		h.logOperation(operation, clientID, name, "failed", "transport")
 		return
 	}
-	h.logger.Info("certificate response written", "client_id", clientID, "certificate_name", name, "operation", "download", "result", "ok")
+	h.logOperation(operation, clientID, name, "ok", "")
+}
+
+func (h *Handler) logOperation(operation, clientID, name, result, category string) {
+	level := slog.LevelInfo
+	if result != "ok" {
+		level = slog.LevelWarn
+	}
+	h.logger.LogAttrs(context.Background(), level, "distribution request",
+		slog.String("client_id", clientID), slog.String("certificate_name", name),
+		slog.String("operation", operation), slog.String("result", result), slog.String("error_category", category))
 }
 
 func (h *Handler) authenticate(r *http.Request) (Client, bool) {
@@ -329,10 +354,10 @@ func matchesClientCertificate(r *http.Request, allowed [][sha256.Size]byte) bool
 	return false
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
+func writeJSON(w http.ResponseWriter, status int, value any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	return json.NewEncoder(w).Encode(value)
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {

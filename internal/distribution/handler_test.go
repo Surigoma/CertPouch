@@ -1,6 +1,7 @@
 package distribution
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -88,7 +90,9 @@ func TestDistributionAPI(t *testing.T) {
 	}
 	disabled := client
 	disabled.ID, disabled.Enabled = "disabled", false
-	h, err := newHandler([]Publication{current, old}, []Client{client, unassigned, disabled, dnsClient}, nil, func() time.Time { return now })
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	h, err := newHandler([]Publication{current, old}, []Client{client, unassigned, disabled, dnsClient}, logger, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +168,37 @@ func TestDistributionAPI(t *testing.T) {
 	w = request(base, unassigned.ID, token, "192.0.2.10:1234", true)
 	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"certificates":[]}` {
 		t.Fatal("unassigned client received inventory")
+	}
+	if w := request(base+"/"+current.Name+"/metadata", client.ID, token, "192.0.2.10:1234", true); w.Code != 200 {
+		t.Fatalf("metadata request returned %d", w.Code)
+	}
+	if w := request(base+"/"+token+"/metadata", client.ID, token, "192.0.2.10:1234", true); w.Code != 404 {
+		t.Fatalf("unknown certificate returned %d", w.Code)
+	}
+	if strings.Contains(logs.String(), token) || strings.Contains(logs.String(), "PRIVATE KEY") {
+		t.Fatal("distribution logs exposed secret material")
+	}
+	type auditEvent struct{ Operation, Client, Certificate, Result, Category string }
+	events := make(map[auditEvent]bool)
+	for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
+		var entry map[string]string
+		if err := json.Unmarshal([]byte(line), &entry); err != nil || entry["time"] == "" {
+			t.Fatalf("invalid audit event: %v", err)
+		}
+		events[auditEvent{entry["operation"], entry["client_id"], entry["certificate_name"], entry["result"], entry["error_category"]}] = true
+	}
+	for _, want := range []auditEvent{
+		{"authenticate", "", "", "denied", "authentication"},
+		{"inventory", unassigned.ID, "", "ok", ""},
+		{"metadata", client.ID, current.Name, "ok", ""},
+		{"metadata", client.ID, "", "denied", "certificate_unavailable"},
+		{"download", client.ID, current.Name, "ok", ""},
+		{"download", unassigned.ID, current.Name, "denied", "certificate_unavailable"},
+		{"download", client.ID, current.Name, "denied", "version_unavailable"},
+	} {
+		if !events[want] {
+			t.Errorf("missing audit event %+v", want)
+		}
 	}
 	loopback := client
 	loopback.AllowedIPs = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
