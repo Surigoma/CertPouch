@@ -26,11 +26,13 @@
 - `server --check-config` は待ち受けを開始せずに設定、TLS鍵ペア、公開世代を検証する。WSLでは同梱unitの実行ユーザーとパスをテスト用に差し替え、非特権ユーザーで起動しHTTPS healthが応答することを確認した。
 - クライアントの `service.verify_tls` を指定すると、サービスがアクティブ世代の証明書を返すことを配置後と復旧時に確認できる。[Keycloak向け設定例](client-deployment.md)
 - `dns sync` は既存キャッシュまたはCSVからNSD向けゾーン候補を生成する。`dns apply` は専用管理ディレクトリで候補と切り戻し用の世代を検証し、NSDへの反映をSOA serialで確認する。[DNSゾーン生成と適用](dns-sync.md)
+- `cert renew` は既存のRSA CAを使い、指定した証明書の初回発行・期限更新・公開を行う。dry-runではCA秘密鍵を読まない。暗号化PEMはOpenSSLでメモリ上に復号する。[証明書更新の設定と運用](certificate-renewal.md)
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業
 
 1. Keycloak 1ホストの証明書参照形式、更新後のTLS応答、切り戻しを隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
 2. 既存NSDゾーンと出力を比較し、静的レコードの統合と稼働ゾーンからのserial自動取得を検討する。[DNS仕様](SPEC/05-dns-pki.md)
+3. 既存CAの保護方式と権限で署名を検証し、更新の定期化と配布サーバーへの反映を検討する。
 
-登録を反映するには配布サーバーの再起動が必要。Keycloakと本番DNSの移行は別途確認する。CAによる発行は未実装。
+登録や更新を反映するには配布サーバーの再起動が必要。Keycloak、本番DNS、既存CAとの連携は別途確認する。

@@ -48,6 +48,19 @@ func ReadPublicationFiles(certificate, chain, key string) (pki.Bundle, error) {
 // Publish validates and commits an immutable generation before switching current.
 // The server reads the new generation the next time it starts.
 func Publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now time.Time) (version string, err error) {
+	return publish(directory, name, policy, bundle, now, nil)
+}
+
+// PublishIfCurrent prevents a renewal from replacing a generation published
+// after it decided an update was needed. An empty expected version means absent.
+func PublishIfCurrent(directory, name string, policy pki.Policy, bundle pki.Bundle, now time.Time, expected string) (string, error) {
+	if expected != "" && !versionPattern.MatchString(expected) {
+		return "", fmt.Errorf("invalid expected generation")
+	}
+	return publish(directory, name, policy, bundle, now, &expected)
+}
+
+func publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now time.Time, expected *string) (version string, err error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("certificate publication requires Linux")
 	}
@@ -89,13 +102,18 @@ func Publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now t
 		return "", fmt.Errorf("acquire publication lock: %w", err)
 	}
 	defer func() { err = errors.Join(err, cert.Remove(lock)) }()
+	active := ""
 	if current, err := cert.Readlink("current"); err == nil {
 		id, ok := strings.CutPrefix(filepath.ToSlash(current), "versions/")
 		if !ok || !versionPattern.MatchString(id) {
 			return "", fmt.Errorf("current does not reference a managed generation")
 		}
+		active = id
 	} else if !os.IsNotExist(err) {
 		return "", err
+	}
+	if expected != nil && active != *expected {
+		return "", fmt.Errorf("published generation changed during renewal; retry with the current generation")
 	}
 	if err := ensurePrivateDir(cert, "versions"); err != nil {
 		return "", err

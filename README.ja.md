@@ -30,9 +30,9 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 | `certpouch cert publish` | 発行済みの証明書を新しい配布世代として登録 |
 | `certpouch dns sync --dry-run` | DNS台帳から生成するNSD向けゾーンを確認 |
 | `certpouch dns apply` | 検証した候補を管理下のNSDへ適用 |
-| `certpouch cert renew` | 更新時期を迎えた証明書を更新 |
+| `certpouch cert renew` | 既存のプライベートCAで対象証明書を発行・更新 |
 
-サーバー、Pull、状態表示、登録、DNSゾーン生成には `--config PATH` が必要です。DNS適用時は候補と管理ディレクトリを指定します。証明書更新は実装予定です。[DNSゾーン生成と適用](docs/dns-sync.md)・[証明書の登録手順](docs/server-publication.md)・[クライアント設定例](configs/client.example.yaml)
+DNS適用では候補と管理ディレクトリを指定します。証明書更新ではサーバー設定と別の発行者設定を指定します。[DNSゾーン生成と適用](docs/dns-sync.md)・[証明書の登録手順](docs/server-publication.md)・[証明書の更新手順](docs/certificate-renewal.md)
 
 ## 仕様とライセンス
 
