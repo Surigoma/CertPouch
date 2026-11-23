@@ -148,6 +148,11 @@ func (s *Session) stage(version string, bundle pki.Bundle) error {
 		if err := os.Chown(versions, -1, opts.GID); err != nil {
 			return err
 		}
+		// The systemd pull unit uses UMask=0077. Set the intended
+		// traversal permissions explicitly after assigning the group.
+		if err := os.Chmod(versions, 0750); err != nil {
+			return err
+		}
 		if err := syncDir(opts.Destination); err != nil {
 			return err
 		}

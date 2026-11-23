@@ -6,12 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
 
 func TestInstallRollback(t *testing.T) {
+	mask := syscall.Umask(0077)
+	defer syscall.Umask(mask)
 	dest := t.TempDir()
 	options := Options{Destination: dest, UID: -1, GID: -1, CertificateMode: 0644, PrivateKeyMode: 0600}
 	bundle := pki.Bundle{CertificatePEM: []byte("leaf"), PrivateKeyPEM: []byte("private")}
@@ -32,6 +35,10 @@ func TestInstallRollback(t *testing.T) {
 	info, err := os.Stat(filepath.Join(dest, "current", "private-key.pem"))
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("private key permissions: %v, %v", info, err)
+	}
+	versions, err := os.Stat(filepath.Join(dest, "versions"))
+	if err != nil || versions.Mode().Perm() != 0750 {
+		t.Fatalf("service group cannot traverse versions directory under the timer umask: %v, %v", versions, err)
 	}
 	s, err = Begin(options)
 	if err != nil {

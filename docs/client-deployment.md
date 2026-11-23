@@ -2,6 +2,8 @@
 
 [クライアント設定例](../configs/client.example.yaml)をもとに、配布サーバーのTLS用CA、証明書の発行CA、クライアントトークン、配置先、systemdのユニットと操作を設定する。配置先は信頼できる管理者が事前に作成し、実行ユーザーに書き込みを許可する。サービスには配置先と `versions` の通過権限を与える。秘密鍵は既定で0600。サービス専用グループで共有する場合は `group` と `private_key_mode: "0640"` を指定する。
 
+すでに作成済みの `versions` ディレクトリを再利用する場合は、その所有グループと通過権限を確認する。Pullは新しく作る `versions` に設定済みのグループと0750を適用する。
+
 ```sh
 certpouch pull --dry-run --config /etc/certpouch/client.yaml
 certpouch pull --config /etc/certpouch/client.yaml

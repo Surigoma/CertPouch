@@ -202,7 +202,11 @@ certificates:
 	func() {
 		stop := start()
 		defer stop()
-		pull("update", second, false)
+		if realSystemd {
+			runWorkflowTimer(t, base, unit, clientConfig, second)
+		} else {
+			pull("update", second, false)
+		}
 		var secondReload time.Time
 		if realSystemd {
 			secondReload = reloadTime(t, logPath)
@@ -232,6 +236,74 @@ certificates:
 	want := "reload -- workflow.service\nis-active --quiet -- workflow.service\n"
 	if string(log) != want+want {
 		t.Fatalf("unexpected service operations: %q", log)
+	}
+}
+
+func runWorkflowTimer(t *testing.T, base, consumer, config, expectedVersion string) {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit := strings.TrimSuffix(consumer, ".service") + "-pull"
+	journal := filepath.Join(base, "timer-result")
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "systemd-run", "--unit="+unit, "--collect", "--on-active=1s",
+		"--timer-property=AccuracySec=100ms", "--property=UMask=0077", "--property=RuntimeMaxSec=10s",
+		"--setenv=CERTPOUCH_TIMER_TEST_CONFIG="+config, "--setenv=CERTPOUCH_TIMER_TEST_RESULT="+journal,
+		executable, "-test.run=^TestWorkflowTimerProcess$")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("start isolated systemd timer: %v: %s", err, output)
+	}
+	defer func() {
+		cleanup, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		// Completed transient units may already have been collected.
+		_ = exec.CommandContext(cleanup, "systemctl", "stop", "--", unit+".timer", unit+".service").Run()
+	}()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("systemd timer did not complete the certificate update")
+		case <-ticker.C:
+			data, err := os.ReadFile(journal)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf("0\nweb.example.internal\tupdate\t%s\n", expectedVersion)
+			if string(data) != want {
+				t.Fatalf("unexpected timer result: %q, want %q", data, want)
+			}
+			return
+		}
+	}
+}
+
+// TestWorkflowTimerProcess is executed by the isolated systemd timer.
+func TestWorkflowTimerProcess(t *testing.T) {
+	cfg, result := os.Getenv("CERTPOUCH_TIMER_TEST_CONFIG"), os.Getenv("CERTPOUCH_TIMER_TEST_RESULT")
+	if cfg == "" || result == "" {
+		t.Skip("only used by the workflow timer")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	code := runPull(ctx, []string{"--config", cfg}, &stdout, &stderr)
+	tmp := result + ".tmp"
+	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n%s%s", code, &stdout, &stderr)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, result); err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("pull exited with status %d", code)
 	}
 }
 

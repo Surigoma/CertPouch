@@ -21,13 +21,13 @@
 - `cert publish` は既存CAが発行した証明書を検証し、公開ストアへ新しい世代として登録する。[登録手順](server-publication.md)
 - Linuxの通しテストで、テストCAによる登録、HTTPS配布、初回Pull、再起動後の世代更新、同一世代の再Pull、オフラインの `status` を確認した。サービス操作はテスト用の代替コマンドで検証した。
 - systemdの定期実行例と[導入手順](client-deployment.md)を追加した。
-- WSL上の一時的なsystemdサービスで、初回配置と世代更新の実リロード、同一世代の再Pullでリロードしないことを確認した。Linuxで再現するには管理権限で `CERTPOUCH_TEST_SYSTEMD=1 go test -run TestLinuxPublicationAndPullWorkflow ./cmd/certpouch` を実行する。テスト専用の一時unitは終了時に停止する。
+- WSL上の一時的なsystemdサービスとタイマーで、初回配置とタイマーによる世代更新の実リロード、同一世代の再Pullでリロードしないことを確認した。Linuxで再現するには管理権限で `CERTPOUCH_TEST_SYSTEMD=1 go test -run TestLinuxPublicationAndPullWorkflow ./cmd/certpouch` を実行する。テスト専用の一時unitは終了時に停止する。
 - 専用ユーザーで起動する配布サーバー用unit例を追加した。[サーバーの設定手順](server-publication.md)
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業
 
-1. 隔離したLinux環境で、サーバー用unitの導入とPullタイマーの実稼働を確認する。
+1. 隔離したLinux環境に同梱のサーバー用unitとPullタイマーを導入して、専用ユーザーと設定ファイルを含む運用構成を確認する。
 2. Keycloak 1ホストの証明書参照形式、更新後のTLS応答、切り戻しを確認する。[受け入れ条件](SPEC/06-verification-operations.md)
 
 登録を反映するには配布サーバーの再起動が必要。Keycloakとの連携は隔離環境で確認する。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。
