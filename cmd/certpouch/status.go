@@ -27,6 +27,7 @@ type certificateStatus struct {
 	Expires     *time.Time `json:"not_after,omitempty"`
 	Fingerprint string     `json:"fingerprint,omitempty"`
 	LastSync    *time.Time `json:"last_successful_sync,omitempty"`
+	LastError   string     `json:"last_error_category,omitempty"`
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
@@ -54,7 +55,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	now := time.Now()
 	for _, target := range cfg.Targets {
 		status := inspectStatus(target, now)
-		if status.State != "installed" {
+		if status.State != "installed" || status.LastError != "" {
 			code = 1
 		}
 		results = append(results, status)
@@ -70,6 +71,10 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 
 func inspectStatus(target config.Target, now time.Time) certificateStatus {
 	result := certificateStatus{Name: target.Name, State: "missing"}
+	state, stateErr := deployment.ReadSync(target.StateFile)
+	if stateErr == nil {
+		result.LastError = state.LastError
+	}
 	lock := filepath.Join(target.Destination, ".pull-lock")
 	if _, err := os.Lstat(filepath.Join(lock, "recovery")); err == nil {
 		result.State = "recovery_pending"
@@ -101,7 +106,6 @@ func inspectStatus(target config.Target, now time.Time) certificateStatus {
 	}
 	expiry := leaf.NotAfter.UTC()
 	result.Expires, result.Fingerprint = &expiry, description.Fingerprint
-	state, stateErr := deployment.ReadSync(target.StateFile)
 	if stateErr == nil && state.Version == version && state.Fingerprint == result.Fingerprint {
 		result.LastSync = &state.SyncedAt
 	}
@@ -109,7 +113,7 @@ func inspectStatus(target config.Target, now time.Time) certificateStatus {
 		result.State = "expired"
 	} else if _, err := pki.Validate(bundle, target.Policy, now); err != nil {
 		result.State = "invalid"
-	} else if (stateErr != nil && !os.IsNotExist(stateErr)) || (stateErr == nil && result.LastSync == nil) {
+	} else if (stateErr != nil && !os.IsNotExist(stateErr)) || (stateErr == nil && state.Version != "" && result.LastSync == nil) {
 		result.State = "state_mismatch"
 	} else {
 		result.State = "installed"

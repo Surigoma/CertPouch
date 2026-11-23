@@ -41,7 +41,10 @@ func Plan(targets []config.Target, inventory []distribution.Metadata, now time.T
 		action := "install"
 		if present {
 			action = "update"
-			if version == remote.Version && artifactHashesMatch(bundle, remote.ArtifactSHA256) {
+			if version == remote.Version {
+				if !artifactHashesMatch(bundle, remote.ArtifactSHA256) {
+					return nil, fmt.Errorf("current generation of %q differs from the published artifacts for the same version; restore it from a verified backup or publish a new generation", target.Name)
+				}
 				validated, err := pki.Validate(bundle, target.Policy, now)
 				if err != nil || validated.Fingerprint != remote.Fingerprint {
 					return nil, fmt.Errorf("current generation of %q failed local certificate validation", target.Name)

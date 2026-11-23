@@ -2,6 +2,7 @@
 package storage
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -177,6 +178,17 @@ func readBundle(root *os.Root, deployment bool) (pki.Bundle, error) {
 		}
 		*artifact.target = body
 		remaining -= len(body)
+	}
+	if deployment {
+		cert, chain := bundle.CertificatePEM, bundle.ChainPEM
+		fullchain, err := readArtifact(root, "fullchain.pem", false, true, len(cert)+1+len(chain))
+		if err != nil {
+			return pki.Bundle{}, fmt.Errorf("read fullchain.pem: %w", err)
+		}
+		if len(fullchain) != len(cert)+1+len(chain) || !bytes.Equal(fullchain[:len(cert)], cert) ||
+			fullchain[len(cert)] != '\n' || !bytes.Equal(fullchain[len(cert)+1:], chain) {
+			return pki.Bundle{}, fmt.Errorf("fullchain.pem does not match the installed certificate and chain")
+		}
 	}
 	return bundle, nil
 }

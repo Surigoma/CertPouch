@@ -445,6 +445,13 @@ certificates:
 			if err := probe.Wait(t.Context(), firstLeaf.Fingerprint); err != nil {
 				t.Fatalf("verify restored certificate: %v", err)
 			}
+			output.Reset()
+			diagnostic.Reset()
+			if code := runStatus([]string{"--config", clientConfig}, &output, &diagnostic); code != 1 ||
+				!strings.Contains(output.String(), "\"last_error_category\": \"deployment\"") ||
+				!strings.Contains(output.String(), "last_successful_sync") {
+				t.Fatalf("rollback status exit %d: %s %s", code, &output, &diagnostic)
+			}
 		}
 		if realSystemd && !useKeycloak {
 			runWorkflowTimer(t, base, unit, clientConfig, second)
@@ -526,13 +533,61 @@ certificates:
 	replaceRevocations(noRevocations)
 	waitInventory(allow)
 
+	current := filepath.Join(destination, "current")
+	chainPath, fullchain := filepath.Join(current, "chain.pem"), filepath.Join(current, "fullchain.pem")
+	chainBackup, err := os.ReadFile(chainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup, err := os.ReadFile(fullchain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range []struct {
+		path string
+		body []byte
+	}{{chainPath, chainBackup}, {fullchain, backup}} {
+		if err := os.WriteFile(artifact.path, append(bytes.Clone(artifact.body), '\n'), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output.Reset()
+	diagnostic.Reset()
+	if code := runPull(t.Context(), []string{"--dry-run", "--config", clientConfig}, &output, &diagnostic); code != 1 ||
+		!strings.Contains(diagnostic.String(), "published artifacts for the same version") {
+		t.Fatalf("preview accepted a changed artifact with the same version: %d, %s", code, &diagnostic)
+	}
+	if err := os.WriteFile(chainPath, chainBackup, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fullchain, backup, 0644); err != nil {
+		t.Fatal(err)
+	}
 	output.Reset()
 	diagnostic.Reset()
 	stop()
 	stop = nil
 	if code := runStatus([]string{"--config", clientConfig}, &output, &diagnostic); code != 0 ||
-		!strings.Contains(output.String(), second) || !strings.Contains(output.String(), "last_successful_sync") {
+		!strings.Contains(output.String(), second) || !strings.Contains(output.String(), "last_successful_sync") ||
+		strings.Contains(output.String(), "last_error_category") {
 		t.Fatalf("offline status exit %d: %s %s", code, &output, &diagnostic)
+	}
+	corrupt := bytes.Clone(backup)
+	corrupt[0] ^= 1
+	if err := os.WriteFile(fullchain, corrupt, 0644); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if code := runStatus([]string{"--config", clientConfig}, &output, &diagnostic); code != 1 ||
+		!strings.Contains(output.String(), "\"state\": \"invalid\"") {
+		t.Fatalf("status accepted damaged fullchain: %d, %s", code, &output)
+	}
+	if err := os.WriteFile(fullchain, backup, 0644); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if code := runStatus([]string{"--config", clientConfig}, &output, &diagnostic); code != 0 {
+		t.Fatalf("status rejected the restored fixture: %d, %s", code, &output)
 	}
 	if realSystemd {
 		return

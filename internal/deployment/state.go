@@ -14,6 +14,18 @@ type SyncState struct {
 	Version     string    `json:"version"`
 	Fingerprint string    `json:"fingerprint"`
 	SyncedAt    time.Time `json:"synced_at"`
+	LastError   string    `json:"last_error_category,omitempty"`
+}
+
+// RecordSyncFailure updates the last failure while retaining the last success.
+// The caller holds the target deployment lock.
+func RecordSyncFailure(path, category string) error {
+	state, err := ReadSync(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	state.LastError = category
+	return RecordSync(path, state)
 }
 
 func RecordSync(path string, state SyncState) error {
@@ -71,5 +83,13 @@ func ReadSync(path string) (SyncState, error) {
 }
 
 func validSyncState(state SyncState) bool {
+	switch state.LastError {
+	case "", "planning", "download", "deployment", "state":
+	default:
+		return false
+	}
+	if state.Version == "" && state.Fingerprint == "" && state.SyncedAt.IsZero() {
+		return state.LastError != ""
+	}
 	return versionPattern.MatchString(state.Version) && fingerPattern.MatchString(state.Fingerprint) && !state.SyncedAt.IsZero()
 }

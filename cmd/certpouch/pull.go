@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -33,6 +34,7 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Usage: certpouch pull [--dry-run] --config PATH")
 		return 2
 	}
+	logger := slog.New(slog.NewJSONHandler(stderr, nil))
 	if !*dryRun {
 		local, err := config.LoadLocalClient(*path)
 		if err != nil {
@@ -66,11 +68,13 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	defer remote.CloseIdleConnections()
 	inventory, err := remote.Inventory(ctx)
 	if err != nil {
+		logger.Error("pull failed", "client_id", cfg.ID, "operation", "pull", "result", "failed", "error_category", "inventory")
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	plan, err := client.Plan(cfg.Targets, inventory, time.Now())
 	if err != nil {
+		logger.Error("pull planning failed", "client_id", cfg.ID, "operation", "pull", "result", "failed", "error_category", "planning")
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -80,7 +84,7 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	for _, item := range plan {
 		if !*dryRun {
-			item, err = applyTarget(ctx, remote, targets[item.Name], inventory)
+			item, err = applyTarget(ctx, remote, targets[item.Name], inventory, logger.With("client_id", cfg.ID))
 			if err != nil {
 				fmt.Fprintf(stderr, "%s: %v\n", item.Name, err)
 				return 1
@@ -94,13 +98,21 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func applyTarget(ctx context.Context, remote *client.Client, target config.Target, inventory []distribution.Metadata) (item client.PlannedCertificate, err error) {
+func applyTarget(ctx context.Context, remote *client.Client, target config.Target, inventory []distribution.Metadata, logger *slog.Logger) (item client.PlannedCertificate, err error) {
 	item.Name = target.Name
 	session, apply, err := beginTarget(ctx, target)
 	if err != nil {
+		logger.Error("pull failed", "certificate_name", target.Name, "operation", "pull", "result", "failed", "error_category", "recovery")
 		return item, err
 	}
 	defer func() { err = errors.Join(err, session.Close()) }()
+	category := "planning"
+	defer func() {
+		if err != nil {
+			logger.Error("pull failed", "certificate_name", target.Name, "operation", "pull", "result", "failed", "error_category", category)
+			err = errors.Join(err, deployment.RecordSyncFailure(target.StateFile, category))
+		}
+	}()
 	plan, err := client.Plan([]config.Target{target}, inventory, time.Now())
 	if err != nil {
 		return item, err
@@ -111,14 +123,17 @@ func applyTarget(ctx context.Context, remote *client.Client, target config.Targe
 			continue
 		}
 		if item.Action != "unchanged" {
+			category = "download"
 			bundle, err := remote.Fetch(ctx, metadata, target.Policy)
 			if err != nil {
 				return item, err
 			}
+			category = "deployment"
 			if err := session.Install(ctx, metadata.Version, bundle, apply); err != nil {
 				return item, err
 			}
 		}
+		category = "state"
 		if err := deployment.RecordSync(target.StateFile, deployment.SyncState{
 			Version: metadata.Version, Fingerprint: metadata.Fingerprint, SyncedAt: time.Now().UTC(),
 		}); err != nil {

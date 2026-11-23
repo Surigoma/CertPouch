@@ -17,12 +17,19 @@ func TestRecordSyncReplacesPreviousState(t *testing.T) {
 	if err := RecordSync(path, state); err != nil {
 		t.Fatal(err)
 	}
+	if err := RecordSyncFailure(path, "deployment"); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := ReadSync(path)
+	if err != nil || failed.LastError != "deployment" || !failed.SyncedAt.Equal(state.SyncedAt) {
+		t.Fatalf("failure should retain the previous sync: %+v, %v", failed, err)
+	}
 	state.SyncedAt = state.SyncedAt.Add(time.Minute)
 	if err := RecordSync(path, state); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ReadSync(path)
-	if err != nil || got.Version != state.Version || got.Fingerprint != state.Fingerprint || !got.SyncedAt.Equal(state.SyncedAt) {
+	if err != nil || got.LastError != "" || got.Version != state.Version || got.Fingerprint != state.Fingerprint || !got.SyncedAt.Equal(state.SyncedAt) {
 		t.Fatalf("unexpected stored state: %+v, %v", got, err)
 	}
 	info, err := os.Stat(path)
