@@ -132,7 +132,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	healthPath    = "/api/v1/health"
+	HealthPath    = "/api/v1/health"
 	inventoryPath = "/api/v1/certificates"
 	clientKey     = "distribution.client"
 )
@@ -145,7 +145,7 @@ func (h *Handler) newRouter() (*gin.Engine, error) {
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
 	router.Use(h.checkRequest)
-	router.GET(healthPath, func(c *gin.Context) {
+	router.GET(HealthPath, func(c *gin.Context) {
 		writeJSON(c.Writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	router.GET(inventoryPath, h.inventory)
@@ -178,7 +178,7 @@ func (h *Handler) checkRequest(c *gin.Context) {
 		c.Abort()
 		return
 	}
-	if c.FullPath() == healthPath {
+	if c.FullPath() == HealthPath {
 		return
 	}
 	client, ok := h.authenticate(r)
