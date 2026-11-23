@@ -105,10 +105,11 @@ certificates:
 - サービスユーザーが0600の鍵を読めない場合、専用グループと0640等を明示する。親ディレクトリのアクセス権も確認する。
 - モードは文字列で受け取り、秘密鍵のother権限、group書き込み、実行ビットを禁止する。
 - `destination`と`state_dir`は絶対パス。証明書間の配置先重複・包含関係は禁止する。
-- サービスはローカル設定に記載されたsystemd unitのみ許可し、actionは`reload`または`restart`に限定する。
+- 反映操作には証明書ごとに `service` または `command` を指定する。両者は同時に設定できない。`service.action` は `reload` または `restart` に限定する。
 - unitはオプションと解釈される先頭ハイフン、空白、制御文字、パス区切りを拒否する。シェル展開しない。
 - SAN期待値はローカル設定で保持し、サーバー応答だけを根拠に置き換えない。
-- `service.verify_tls` に接続先の `address` と `server_name` を指定すると、配置後に接続先のリーフ証明書を照合する。`timeout` の既定値は15秒で、1秒から2分を指定できる。
+- `command.args` は実行ファイル名を先頭とする非空の文字列配列とする。Pullはローカル設定から引数をそのまま渡して実行する。`command.timeout` は正の期間で、既定は30秒。
+- `service.verify_tls` または `command.verify_tls` に接続先の `address` と `server_name` を指定すると、配置後に接続先のリーフ証明書を照合する。TLS照合の `timeout` は既定15秒で、1秒から2分を指定できる。
 
 ## 共通検証・更新
 

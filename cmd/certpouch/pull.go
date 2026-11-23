@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -145,8 +146,17 @@ func applyTarget(ctx context.Context, remote *client.Client, target config.Targe
 }
 
 func beginTarget(ctx context.Context, target config.Target) (*deployment.Session, func(context.Context) error, error) {
-	opts, apply, err := deployment.Configure(target.Destination, target.Owner, target.Group,
-		target.CertificateMode, target.PrivateKeyMode, target.Unit, target.Action)
+	var opts deployment.Options
+	var apply func(context.Context) error
+	var err error
+	if len(target.CommandArgs) != 0 {
+		opts, apply, err = deployment.ConfigureCommand(target.Destination, target.Owner, target.Group,
+			target.CertificateMode, target.PrivateKeyMode, target.CommandArgs, target.CommandTimeout)
+	} else {
+		opts, apply, err = deployment.Configure(target.Destination, target.Owner, target.Group,
+			target.CertificateMode, target.PrivateKeyMode, target.Unit, target.Action)
+		opts.RecoveryTimeout = deployment.SystemdTimeout
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -159,8 +169,11 @@ func beginTarget(ctx context.Context, target config.Target) (*deployment.Session
 		if err != nil {
 			return nil, nil, err
 		}
-		opts.RecoveryTimeout = deployment.SystemdTimeout + timeout
-		systemd := apply
+		if opts.RecoveryTimeout > time.Duration(math.MaxInt64)-timeout {
+			return nil, nil, fmt.Errorf("deployment and TLS verification timeouts exceed the supported duration")
+		}
+		opts.RecoveryTimeout += timeout
+		activate := apply
 		apply = func(ctx context.Context) error {
 			_, bundle, present, err := storage.LoadDeployment(target.Destination)
 			if err != nil {
@@ -173,7 +186,7 @@ func beginTarget(ctx context.Context, target config.Target) (*deployment.Session
 			if err != nil {
 				return err
 			}
-			if err := systemd(ctx); err != nil {
+			if err := activate(ctx); err != nil {
 				return err
 			}
 			return probe.Wait(ctx, leaf.Fingerprint)

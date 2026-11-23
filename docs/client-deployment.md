@@ -14,7 +14,7 @@ certpouch status --config /etc/certpouch/client.yaml
 
 サービスは配置先の `current/fullchain.pem` と `current/private-key.pem` を参照する。初回導入前に、既存サービス設定と証明書を退避する。初回配置で切り戻し先がない場合に備え、元のサービス設定と参照先へ戻せるようにする。
 
-通常のPullは、検証済みのファイルを世代ディレクトリに保存し、`current` を切り替えてから、設定した `reload` または `restart` を実行する。systemdの稼働状態を確認した後、運用側でもTLS接続を試して、新しい証明書が実際に使われていることを確認する。
+通常のPullは、検証済みのファイルを世代ディレクトリに保存し、`current` を切り替えてから、証明書ごとに設定した `service` または `command` を実行する。両方の指定は設定エラーになる。systemdの稼働状態やコマンドの終了コードに加え、利用サービスが新しい証明書を実際に配信することも確認する。
 
 実際に配信された証明書まで自動で確認する場合は、証明書ごとの `service.verify_tls` を使う。プロキシ経由ではなく、対象インスタンスのTLSポートを指定する。例の `server_name` は証明書のSANに含める。
 
@@ -28,7 +28,28 @@ service:
     timeout: "60s"
 ```
 
-Pullは `validation.trust_ca_file` と指定名でTLSを検証し、相手が返したリーフと現在の世代のSHA-256フィンガープリントを照合する。systemdの操作完了後、`timeout` の範囲で照合を繰り返し、一致しなければ配置失敗として切り戻す。既定値は15秒で、1秒から2分まで指定できる。旧世代の再反映と異常終了後の復旧でも同じ設定を使う。
+Pullは `validation.trust_ca_file` と指定名でTLSを検証し、相手が返したリーフと現在の世代のSHA-256フィンガープリントを照合する。設定した操作の完了後、`timeout` の範囲で照合を繰り返し、一致しなければ配置失敗として切り戻す。既定値は15秒で、1秒から2分まで指定できる。旧世代の再反映と異常終了後の復旧でも同じ設定を使う。
+
+## Dockerなどをコマンドで反映する
+
+対象の証明書から `service` を外し、代わりに以下の `command` を指定する。
+
+```yaml
+command:
+  args: ["/usr/bin/docker", "restart", "web"]
+  timeout: "1m"
+  verify_tls:
+    address: "127.0.0.1:443"
+    server_name: "web.example.internal"
+```
+
+`args` の先頭が実行ファイルで、残りの要素はそれぞれ1個の引数となる。パイプ、リダイレクト、変数展開などのシェル構文は解釈しない。コマンドはPullの実行ユーザーで動くため、例ではDockerへのアクセス権限が必要。実行ファイルには絶対パスを推奨する。コマンドの `timeout` は既定30秒で、正の期間を指定できる。非ゼロ終了またはタイムアウトは反映失敗となる。旧世代への切り戻し後も同じコマンドを実行する。標準出力と標準エラーはPullの出力に含めない。
+
+コンテナで使う場合は、ホストの配置先ディレクトリ全体をコンテナに読み取り専用でマウントし、コンテナ側で `current/fullchain.pem` と `current/private-key.pem` を参照する。個別の証明書ファイルをマウントすると、古い世代を参照し続ける場合がある。実行ユーザーとコンテナ側ユーザーの読取権限を確認する。コマンドの終了と実際のTLS配信を照合するには `command.verify_tls` を指定する。
+
+Docker Composeを使う場合は `args: ["/usr/bin/docker", "compose", "-f", "/srv/web/compose.yaml", "restart", "web"]` のように、Composeファイルを絶対パスで指定できる。
+
+## Keycloakの設定と試験
 
 Keycloakでは `https-certificate-file` に `current/fullchain.pem`、`https-certificate-key-file` に `current/private-key.pem` を指定できる。例はサービス再起動で反映する構成。Keycloakの定期的な証明書再読み込みを待つ運用は、Pull直後の確認とは分けて検証する。[Keycloak公式のTLS設定](https://www.keycloak.org/server/enabletls)
 

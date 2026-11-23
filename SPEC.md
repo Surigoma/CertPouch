@@ -9,7 +9,7 @@ This document describes the current implementation. [Detailed specifications](do
 - Google Sheets, an existing Sheets JSON cache, or CSV exports provide DNS inventory. CertPouch can fetch the Sheets cache with a read-only service account. An existing cache or CSV can be used locally without Google access.
 - DNS inventory drives NSD zone generation and, in DNS inventory mode, source IP authorization for distribution.
 - Administrators publish an existing certificate or issue one using a configured RSA CA. The distribution server loads validated generations from a local store. The signing key stays with the issuance process.
-- Each receiving host retrieves only authorized certificates over HTTPS. It validates the downloaded generation, switches its local `current` link, and performs the locally configured systemd action.
+- Each receiving host retrieves only authorized certificates over HTTPS. It validates the downloaded generation, switches its local `current` link, and runs the systemd action or command configured on that host.
 - The CLI lives in `cmd/certpouch`. Internal packages cover YAML configuration, HTTPS server and distribution, the pull client, PKI, DNS, Sheets access, storage, and deployment. The Go requirement and module dependencies are in [go.mod](go.mod).
 
 See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
@@ -56,7 +56,7 @@ TLS 1.2 or later is required. The client verifies the server name and configured
 
 Before publication and deployment, CertPouch validates the leaf and key, validity period, DNS/IP SAN set, direct issuer, intermediate chain, and explicit Server Authentication EKU. Distributed keys are RSA, at least 2048 bits, in unencrypted PKCS#1 or PKCS#8 PEM. The CA private key is never part of a distributed bundle.
 
-The server and client keep immutable version directories with atomically switched `current` links. The client verifies the artifact hashes and local policy before switching. An unchanged generation skips file changes and systemd operations. Activation uses only the configured service's `reload` or `restart`. It checks systemd's active state and optionally the fingerprint served on the service's TLS endpoint. Activation failure triggers rollback when an older generation is available. Failed recovery and failed first activation leave a record for manual recovery.
+The server and client keep immutable version directories with atomically switched `current` links. The client verifies the artifact hashes and local policy before switching. An unchanged generation skips file changes and activation. Activation uses a locally configured systemd `reload` or `restart`, or a local executable with an explicit argument list. Both modes can verify the TLS endpoint's leaf fingerprint. Activation failure triggers rollback and repeats the configured operation when an older generation is available. Failed recovery and failed first activation leave a record for manual recovery.
 
 Renewal uses Go's X.509 implementation and an existing RSA CA. It creates a new leaf key, validates the issued bundle, then publishes it. If the CA key uses supported encrypted PEM, OpenSSL decrypts it in memory using a protected file descriptor for the passphrase. No new root CA is generated. See [deployment](docs/SPEC/04-certificate-deployment.md) and [renewal](docs/certificate-renewal.md).
 

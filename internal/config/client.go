@@ -28,6 +28,8 @@ type Target struct {
 	Owner, Group                    string
 	CertificateMode, PrivateKeyMode string
 	Unit, Action                    string
+	CommandArgs                     []string
+	CommandTimeout                  time.Duration
 	StateFile                       string
 	TLSAddress, TLSServerName       string
 	TLSVerifyTimeout                time.Duration
@@ -61,15 +63,22 @@ type pullCertificate struct {
 	Group           string   `yaml:"group"`
 	CertificateMode string   `yaml:"certificate_mode"`
 	PrivateKeyMode  string   `yaml:"private_key_mode"`
-	Service         struct {
-		Unit      string `yaml:"unit"`
-		Action    string `yaml:"action"`
-		VerifyTLS *struct {
-			Address    string `yaml:"address"`
-			ServerName string `yaml:"server_name"`
-			Timeout    string `yaml:"timeout"`
-		} `yaml:"verify_tls"`
+	Service         *struct {
+		Unit      string             `yaml:"unit"`
+		Action    string             `yaml:"action"`
+		VerifyTLS *tlsVerifyDocument `yaml:"verify_tls"`
 	} `yaml:"service"`
+	Command *struct {
+		Args      []string           `yaml:"args"`
+		Timeout   string             `yaml:"timeout"`
+		VerifyTLS *tlsVerifyDocument `yaml:"verify_tls"`
+	} `yaml:"command"`
+}
+
+type tlsVerifyDocument struct {
+	Address    string `yaml:"address"`
+	ServerName string `yaml:"server_name"`
+	Timeout    string `yaml:"timeout"`
 }
 
 func LoadClient(path string) (Client, error) {
@@ -145,18 +154,46 @@ func loadClient(path string, network bool) (Client, error) {
 			Name: target.Name, Destination: dest, Policy: policy,
 			Owner: target.Owner, Group: target.Group,
 			CertificateMode: target.CertificateMode, PrivateKeyMode: target.PrivateKeyMode,
-			Unit: target.Service.Unit, Action: target.Service.Action,
 			StateFile: stateFile,
 		}
-		if probe := target.Service.VerifyTLS; probe != nil {
+		var probe *tlsVerifyDocument
+		operation := "service"
+		if target.Service != nil && target.Command != nil {
+			return Client{}, fmt.Errorf("certificates[%d] cannot configure both service and command", i)
+		}
+		if service := target.Service; service != nil {
+			entry.Unit, entry.Action = service.Unit, service.Action
+			probe = service.VerifyTLS
+		}
+		if command := target.Command; command != nil {
+			if len(command.Args) == 0 || strings.TrimSpace(command.Args[0]) == "" {
+				return Client{}, fmt.Errorf("certificates[%d].command.args requires an executable", i)
+			}
+			for _, arg := range command.Args {
+				if strings.ContainsRune(arg, 0) {
+					return Client{}, fmt.Errorf("certificates[%d].command.args cannot contain NUL characters", i)
+				}
+			}
+			entry.CommandArgs = command.Args
+			if command.Timeout != "" {
+				timeout, err := time.ParseDuration(command.Timeout)
+				if err != nil || timeout <= 0 {
+					return Client{}, fmt.Errorf("certificates[%d].command.timeout must be a positive duration", i)
+				}
+				entry.CommandTimeout = timeout
+			}
+			probe = command.VerifyTLS
+			operation = "command"
+		}
+		if probe != nil {
 			if probe.Address == "" || probe.ServerName == "" {
-				return Client{}, fmt.Errorf("certificates[%d].service.verify_tls requires address and server_name", i)
+				return Client{}, fmt.Errorf("certificates[%d].%s.verify_tls requires address and server_name", i, operation)
 			}
 			entry.TLSAddress, entry.TLSServerName = probe.Address, probe.ServerName
 			if probe.Timeout != "" {
 				timeout, err := time.ParseDuration(probe.Timeout)
 				if err != nil || timeout < time.Second || timeout > 2*time.Minute {
-					return Client{}, fmt.Errorf("certificates[%d].service.verify_tls.timeout must be between 1s and 2m", i)
+					return Client{}, fmt.Errorf("certificates[%d].%s.verify_tls.timeout must be between 1s and 2m", i, operation)
 				}
 				entry.TLSVerifyTimeout = timeout
 			}
