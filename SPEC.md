@@ -450,7 +450,7 @@ Keep the authentication implementation extensible so mTLS can be added later.
 
 Do not treat an IP address as cryptographic identity.
 
-Clients must only be able to download certificates explicitly assigned to them.
+In DNS inventory mode, an authenticated client may download a certificate when its source IP matches the address registered for the certificate's logical name. Operators can grant additional source hosts per client and certificate. Static mode uses explicit client-to-certificate assignments. See [DNS inventory access control](docs/dns-inventory.md) for the configuration and refresh behavior.
 
 ## 7. Certificate Validation
 

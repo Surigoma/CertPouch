@@ -1,0 +1,24 @@
+server:
+  listen: "127.0.0.1:8443"
+  tls:
+    certificate: "/etc/certpouch/server.crt"
+    private_key: "/etc/certpouch/server.key"
+storage:
+  certificate_dir: "/var/lib/certpouch/certificates"
+  trust_ca_file: "/etc/certpouch/issuers.pem"
+dns_inventory:
+  cache_file: "/var/lib/dns-inventory/cache.json"
+  fallback_prefix: "192.0.2"
+  zone: "example.internal"
+certificates:
+  - name: "web.example.internal"
+    expected_dns_sans: ["web.example.internal"]
+    expected_ip_sans: []
+    issuer_certificate: "/etc/certpouch/intermediate.crt"
+clients:
+  - id: "web-server-01"
+    enabled: true
+    token_hash_file: "/etc/certpouch/credentials/web-server-01.sha256"
+    # Optional. Permit this inventory host in addition to the certificate's own address.
+    # certificate_access_overrides:
+    #   web.example.internal: ["backup.pvt.example.internal"]

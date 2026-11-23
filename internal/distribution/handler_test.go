@@ -80,9 +80,15 @@ func TestDistributionAPI(t *testing.T) {
 	}
 	unassigned := client
 	unassigned.ID, unassigned.AllowedCertificates = "unassigned", nil
+	dnsClient := client
+	dnsClient.ID, dnsClient.AllowedIPs, dnsClient.AllowedCertificates = "dns", nil, nil
+	dnsClient.CertificateIPs = map[string][]netip.Prefix{
+		current.Name:             {netip.MustParsePrefix("192.0.2.10/32"), netip.MustParsePrefix("192.0.2.12/32")},
+		"other.example.internal": {netip.MustParsePrefix("192.0.2.11/32")},
+	}
 	disabled := client
 	disabled.ID, disabled.Enabled = "disabled", false
-	h, err := newHandler([]Publication{current, old}, []Client{client, unassigned, disabled}, nil, func() time.Time { return now })
+	h, err := newHandler([]Publication{current, old}, []Client{client, unassigned, disabled, dnsClient}, nil, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +118,8 @@ func TestDistributionAPI(t *testing.T) {
 		{"disabled", download, disabled.ID, token, "192.0.2.10:1234", true, 401},
 		{"forwarded IP ignored", download, client.ID, token, "198.51.100.10:1234", true, 401},
 		{"unassigned", download, unassigned.ID, token, "192.0.2.10:1234", true, 404},
+		{"DNS source for a different certificate denied", download, dnsClient.ID, token, "192.0.2.11:1234", true, 404},
+		{"DNS source required for metadata", base + "/" + current.Name + "/metadata", dnsClient.ID, token, "192.0.2.11:1234", true, 404},
 		{"unknown version", base + "/" + current.Name + "/download?version=" + strings.Repeat("c", 32), client.ID, token, "192.0.2.10:1234", true, 409},
 		{"duplicate version", download + "&version=" + old.Version, client.ID, token, "192.0.2.10:1234", true, 400},
 		{"encoded separator", base + "/" + current.Name + "%2fmetadata", client.ID, token, "192.0.2.10:1234", true, 400},
@@ -125,6 +133,16 @@ func TestDistributionAPI(t *testing.T) {
 				t.Fatalf("status = %d, want %d; secret present = %t", w.Code, tt.status, strings.Contains(w.Body.String(), "PRIVATE KEY"))
 			}
 		})
+	}
+	for _, source := range []string{"192.0.2.10:1234", "192.0.2.12:1234"} {
+		w := request(download, dnsClient.ID, token, source, true)
+		if w.Code != http.StatusOK {
+			t.Fatalf("DNS source %s denied: %d", source, w.Code)
+		}
+	}
+	wrongSource := request(base, dnsClient.ID, token, "192.0.2.11:1234", true)
+	if wrongSource.Code != 200 || strings.TrimSpace(wrongSource.Body.String()) != `{"certificates":[]}` {
+		t.Fatal("DNS client saw metadata for a certificate assigned to a different IP")
 	}
 	post := httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/health", nil)
 	rejected := httptest.NewRecorder()

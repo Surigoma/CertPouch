@@ -25,6 +25,9 @@ type Client struct {
 	TokenHash           [sha256.Size]byte
 	AllowedIPs          []netip.Prefix
 	AllowedCertificates []string
+	// CertificateIPs binds each certificate name to its permitted sources.
+	// A non-nil map selects certificate-specific authorization.
+	CertificateIPs map[string][]netip.Prefix
 }
 
 type Handler struct {
@@ -50,8 +53,27 @@ func newHandler(publications []Publication, clients []Client, logger *slog.Logge
 	h := &Handler{catalog: c, clients: make(map[string]Client), logger: logger, now: now}
 	for _, client := range clients {
 		if !namePattern.MatchString(client.ID) || h.clients[client.ID].ID != "" ||
-			len(client.AllowedIPs) == 0 || (client.Enabled && client.TokenHash == [sha256.Size]byte{}) {
+			(client.CertificateIPs == nil && len(client.AllowedIPs) == 0) ||
+			(client.Enabled && client.TokenHash == [sha256.Size]byte{}) {
 			return nil, fmt.Errorf("invalid or duplicate client configuration")
+		}
+		if client.CertificateIPs != nil {
+			if len(client.AllowedIPs) != 0 || len(client.AllowedCertificates) != 0 {
+				return nil, fmt.Errorf("cannot mix address-specific and static assignments")
+			}
+			rules := make(map[string][]netip.Prefix, len(client.CertificateIPs))
+			for name, prefixes := range client.CertificateIPs {
+				if !namePattern.MatchString(name) {
+					return nil, fmt.Errorf("invalid certificate assignment")
+				}
+				for _, prefix := range prefixes {
+					if !prefix.IsValid() || prefix.Addr().Is4In6() {
+						return nil, fmt.Errorf("invalid certificate source prefix")
+					}
+				}
+				rules[name] = append([]netip.Prefix(nil), prefixes...)
+			}
+			client.CertificateIPs = rules
 		}
 		client.AllowedIPs = append([]netip.Prefix(nil), client.AllowedIPs...)
 		for i, prefix := range client.AllowedIPs {
@@ -245,8 +267,21 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 	if err != nil {
 		return Client{}, false
 	}
+	ip = ip.WithZone("").Unmap()
+	if client.CertificateIPs != nil {
+		for name, prefixes := range client.CertificateIPs {
+			for _, prefix := range prefixes {
+				if prefix.Contains(ip) {
+					client.AllowedCertificates = append(client.AllowedCertificates, name)
+					break
+				}
+			}
+		}
+		sort.Strings(client.AllowedCertificates)
+		return client, true
+	}
 	for _, prefix := range client.AllowedIPs {
-		if prefix.Contains(ip.WithZone("").Unmap()) {
+		if prefix.Contains(ip) {
 			return client, true
 		}
 	}

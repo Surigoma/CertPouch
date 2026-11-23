@@ -6,11 +6,11 @@
 
 CertPouch is a self-hosted project for private DNS, private PKI, and pull-based certificate distribution. It is designed as a single Go binary that works with your existing private CA.
 
-**Project status:** Specification stage. The CLI and features below are planned.
+**Project status:** The HTTPS distribution server is implemented. The pull client and deployment workflow are planned.
 
 ## How it works
 
-A central server stores certificates and their keys. Each host authenticates over HTTPS and pulls only the certificates assigned to it. Before installation, the client checks the certificate chain, expected names, validity period, and matching private key. It switches to the validated version, reloads or restarts the configured service, and rolls back if that operation fails.
+A central server stores certificates and their keys. In DNS inventory mode, an authenticated host can download a certificate when its source IP matches the certificate name in the Google Sheets snapshot. Operators can grant access from additional hosts. The planned pull client will validate each bundle, switch versions, reload or restart the service, and roll back on failure. [DNS inventory configuration](docs/dns-inventory.md)
 
 ## Roadmap
 
@@ -19,7 +19,7 @@ A central server stores certificates and their keys. Each host authenticates ove
 3. **Private PKI.** Issue and renew server certificates with the existing private CA and publish validated versions.
 4. **Production readiness.** Improve observability, add mTLS, and refine credential revocation and release procedures.
 
-## Planned CLI
+## CLI
 
 | Command | Purpose |
 | --- | --- |
@@ -30,7 +30,7 @@ A central server stores certificates and their keys. Each host authenticates ove
 | `certpouch dns sync` | Synchronize DNS zones |
 | `certpouch cert renew` | Renew certificates that are due |
 
-The CLI and configuration may change during initial development.
+The `server` command requires `--config PATH`. The remaining commands are planned.
 
 ## Documentation and license
 
