@@ -57,10 +57,15 @@ func (p *TLSProbe) Wait(ctx context.Context, expected string) error {
 			return fmt.Errorf("service TLS did not serve the expected certificate: %w", errors.Join(err, last))
 		}
 		attempt, cancelAttempt := context.WithTimeout(ctx, 2*time.Second)
-		last = p.verify(attempt, expected)
+		err := p.verify(attempt, expected)
 		cancelAttempt()
-		if last == nil {
+		if err == nil {
 			return nil
+		}
+		// A timed-out retry can otherwise hide the earlier TLS failure.
+		var networkError net.Error
+		if last == nil || (ctx.Err() == nil && !(errors.As(err, &networkError) && networkError.Timeout())) {
+			last = err
 		}
 		select {
 		case <-ctx.Done():

@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -24,7 +25,9 @@ import (
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/client"
+	"github.com/Surigoma/CertPouch/internal/deployment"
 	"github.com/Surigoma/CertPouch/internal/dns"
+	"github.com/Surigoma/CertPouch/internal/pki"
 )
 
 func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
@@ -99,14 +102,51 @@ clients:
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
 	logPath := filepath.Join(base, "systemctl.log")
+	tlsVerification := ""
+	consumerAddress := ""
+	staleReload := filepath.Join(base, "stale-reload")
 	if realSystemd {
+		served := filepath.Join(base, "served")
+		consumer, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		endpoint := &http.Server{TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+				generation, err := os.Readlink(served)
+				if err != nil {
+					return nil, err
+				}
+				pair, err := tls.LoadX509KeyPair(filepath.Join(generation, "fullchain.pem"), filepath.Join(generation, "private-key.pem"))
+				return &pair, err
+			},
+		}, ErrorLog: log.New(io.Discard, "", 0)}
+		go func() { _ = endpoint.ServeTLS(consumer, "", "") }()
+		t.Cleanup(func() {
+			_ = endpoint.Close()
+			_ = consumer.Close()
+		})
+		consumerAddress = consumer.Addr().String()
+		tlsVerification = fmt.Sprintf("\n      verify_tls: {address: %q, server_name: web.example.internal, timeout: 1s}", consumerAddress)
+		reload := write("reload.sh", []byte(`#!/bin/sh
+set -eu
+if [ -f "$1" ]; then
+  rm -- "$1"
+  exit 0
+fi
+ln -s "$(readlink -f -- "$2/current")" "$3.next"
+mv -Tf -- "$3.next" "$3"
+touch -- "$4"
+`))
 		suffix := make([]byte, 8)
 		if _, err := rand.Read(suffix); err != nil {
 			t.Fatal(err)
 		}
 		unit = fmt.Sprintf("certpouch-workflow-%x.service", suffix)
 		cmd := exec.Command("systemd-run", "--unit="+unit, "--collect", "--property=Type=exec",
-			"--property=ExecReload=/usr/bin/touch "+logPath, "/usr/bin/sleep", "infinity")
+			"--property=ExecReload=/bin/sh "+strings.Join([]string{reload, staleReload, destination, served, logPath}, " "),
+			"/usr/bin/sleep", "infinity")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("start isolated systemd consumer: %v: %s", err, output)
 		}
@@ -132,8 +172,10 @@ certificates:
     destination: %q
     expected_dns_sans: [web.example.internal]
     issuer_certificate: %q
-    service: {unit: %q, action: reload}
-`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, unit)))
+    service:
+      unit: %q
+      action: reload%s
+`, origin, caFile, tokenFile, clientCertFile, clientKeyFile, caFile, destination, caFile, unit, tlsVerification)))
 	var output, diagnostic bytes.Buffer
 	publish := func(cert, key string) string {
 		t.Helper()
@@ -282,7 +324,39 @@ certificates:
 		time.Sleep(50 * time.Millisecond)
 	}
 	func() {
+		previousReload := firstReload
 		if realSystemd {
+			write("stale-reload", nil)
+			output.Reset()
+			diagnostic.Reset()
+			if code := runPull(t.Context(), []string{"--config", clientConfig}, &output, &diagnostic); code == 0 ||
+				!strings.Contains(diagnostic.String(), "different leaf certificate") {
+				t.Fatalf("expected a TLS mismatch during reload: %d, %s", code, &diagnostic)
+			}
+			active, err := os.Readlink(filepath.Join(destination, "current"))
+			if err != nil || filepath.Base(active) != first {
+				t.Fatalf("previous generation was not restored: %q, %v", active, err)
+			}
+			if _, err := os.Stat(staleReload); !os.IsNotExist(err) {
+				t.Fatalf("systemd did not consume the stale-reload marker: %v", err)
+			}
+			previousReload = reloadTime(t, logPath)
+			if !previousReload.After(firstReload) {
+				t.Fatal("systemd did not reload the restored generation")
+			}
+			roots := x509.NewCertPool()
+			roots.AddCert(certs.ca)
+			probe, err := deployment.NewTLSProbe(consumerAddress, "web.example.internal", roots, time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstLeaf, err := pki.DescribeLeaf(certs.first.cert)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := probe.Wait(t.Context(), firstLeaf.Fingerprint); err != nil {
+				t.Fatalf("verify restored certificate: %v", err)
+			}
 			runWorkflowTimer(t, base, unit, clientConfig, second)
 		} else {
 			pull("update", second, false)
@@ -290,7 +364,7 @@ certificates:
 		var secondReload time.Time
 		if realSystemd {
 			secondReload = reloadTime(t, logPath)
-			if !secondReload.After(firstReload) {
+			if !secondReload.After(previousReload) {
 				t.Fatal("updated certificate did not trigger a systemd reload")
 			}
 		}

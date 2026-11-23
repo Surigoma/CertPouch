@@ -63,7 +63,7 @@ func TestTLSProbeStopsAtConfiguredDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	err = probe.Wait(ctx, strings.Repeat("0", 64))
-	if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+	if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil || !strings.Contains(err.Error(), "different leaf") {
 		t.Fatalf("expected the probe to time out before its parent, got %v (parent: %v)", err, ctx.Err())
 	}
 }
