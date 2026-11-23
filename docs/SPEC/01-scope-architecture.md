@@ -62,6 +62,7 @@ flowchart LR
 
 | コマンド | 要件 | 段階 |
 | --- | --- | --- |
+| `init server\|client --help` | サーバー・クライアントの初期設定を新規ディレクトリに生成 | 1 |
 | `server --config PATH` | 設定・保存領域を検証してHTTPS配布を開始 | 1 |
 | `pull --config PATH` | 認証、差分取得、検証、配置、reload、失敗時復旧 | 1 |
 | `pull --dry-run --config PATH` | 更新予定を表示 | 1 |
