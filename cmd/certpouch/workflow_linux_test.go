@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Surigoma/CertPouch/internal/client"
 )
 
 func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
@@ -67,6 +69,7 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 	serverConfig := write("server.yaml", []byte(fmt.Sprintf(`
 server:
   listen: %q
+  publication_refresh: "1s"
   tls: {certificate: %q, private_key: %q}
 storage: {certificate_dir: %q, trust_ca_file: %q}
 certificates:
@@ -195,9 +198,13 @@ certificates:
 		t.Fatalf("server preflight accepted a mismatched TLS key: %d, %s", code, &diagnostic)
 	}
 	var firstReload time.Time
+	stop := start()
+	defer func() {
+		if stop != nil {
+			stop()
+		}
+	}()
 	func() {
-		stop := start()
-		defer stop()
 		pull("install", first, true)
 		if _, err := os.Stat(filepath.Join(destination, "current")); !os.IsNotExist(err) {
 			t.Fatal("dry-run changed the active generation")
@@ -212,9 +219,24 @@ certificates:
 		}
 	}()
 	second := publish(secondFile, secondKeyFile)
+	inventory, err := client.New(origin, "workflow", token, tlsRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inventory.CloseIdleConnections()
+	wait, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for {
+		entries, err := inventory.Inventory(wait)
+		if err == nil && len(entries) == 1 && entries[0].Version == second {
+			break
+		}
+		if wait.Err() != nil {
+			t.Fatalf("server did not load new publication without restarting: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	func() {
-		stop := start()
-		defer stop()
 		if realSystemd {
 			runWorkflowTimer(t, base, unit, clientConfig, second)
 		} else {
@@ -235,6 +257,8 @@ certificates:
 
 	output.Reset()
 	diagnostic.Reset()
+	stop()
+	stop = nil
 	if code := runStatus([]string{"--config", clientConfig}, &output, &diagnostic); code != 0 ||
 		!strings.Contains(output.String(), second) || !strings.Contains(output.String(), "last_successful_sync") {
 		t.Fatalf("offline status exit %d: %s %s", code, &output, &diagnostic)

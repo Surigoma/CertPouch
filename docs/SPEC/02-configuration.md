@@ -41,6 +41,7 @@ clients:
 | 項目 | 検証 |
 | --- | --- |
 | `server.listen` | 有効なhost:port。HTTP併設やHTTPへのフォールバックは禁止 |
+| `server.publication_refresh` | 任意。1秒以上の期間を指定すると公開ストアを定期的に再検証して配布在庫へ反映する |
 | TLSファイル | PEMが読め、鍵が一致すること。配布対象の鍵と分離する |
 | `certificate_dir` | 絶対パス。管理対象外への参照を許さない |
 | `trust_ca_file` | 証明書公開時に使う信頼アンカー。OS既定に暗黙依存しない |

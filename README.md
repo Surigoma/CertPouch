@@ -10,7 +10,7 @@ CertPouch is a self-hosted project for private DNS, private PKI, and pull-based 
 
 ## How it works
 
-A central server stores certificates and their keys. In DNS inventory mode, an authenticated host can download a certificate when its source IP matches the certificate name in the Google Sheets snapshot. Operators can grant access from additional hosts. The planned pull client will validate each bundle, switch versions, reload or restart the service, and roll back on failure. [DNS inventory configuration](docs/dns-inventory.md)
+A central server stores certificates and their keys. In DNS inventory mode, an authenticated host can download a certificate when its source IP matches the certificate name in the inventory. Operators can grant access from additional hosts. The pull client validates each bundle, switches versions, and rolls back if service activation fails. The server can refresh published generations without restarting. [DNS inventory configuration](docs/dns-inventory.md) · [Server publication](docs/server-publication.md)
 
 ## Roadmap
 
@@ -30,9 +30,9 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 | `certpouch cert publish` | Register an existing certificate as a new distribution generation |
 | `certpouch dns sync --dry-run` | Preview NSD zone files from the DNS inventory snapshot |
 | `certpouch dns apply` | Activate a validated snapshot on a managed NSD server |
-| `certpouch cert renew` | Renew certificates that are due |
+| `certpouch cert renew` | Issue or renew configured certificates using an existing private CA |
 
-Most commands use `--config PATH`. DNS activation uses an explicit candidate and managed directory. Certificate renewal is planned. [DNS zone generation and activation](docs/dns-sync.md) · [Publishing certificates](docs/server-publication.md) · [Example client configuration](configs/client.example.yaml)
+Most commands use `--config PATH`. DNS activation uses an explicit candidate and managed directory. Renewal also requires a separate issuer configuration. [DNS zone generation and activation](docs/dns-sync.md) · [Publishing certificates](docs/server-publication.md) · [Certificate renewal](docs/certificate-renewal.md)
 
 ## Documentation and license
 

@@ -75,7 +75,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return 1
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, nil))
-	handler, err := distribution.NewHandler(publications, cfg.Clients, logger)
+	handler, err := server.NewPublicationHandler(publications, cfg.Clients, logger)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -87,6 +87,13 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stderr, "server configuration valid (%d published certificates)\n", len(publications))
 		return 0
+	}
+	refreshContext, stopRefresh := context.WithCancel(ctx)
+	defer stopRefresh()
+	if cfg.PublicationRefresh != 0 {
+		go handler.Watch(refreshContext, cfg.PublicationRefresh, func() ([]distribution.Publication, error) {
+			return storage.Load(cfg.CertificateDir, cfg.Policies)
+		})
 	}
 	if err := server.Run(ctx, cfg.Listen, cfg.TLSCertificate, cfg.TLSPrivateKey, handler); err != nil {
 		fmt.Fprintln(stderr, err)

@@ -89,7 +89,15 @@ func publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now t
 		return "", err
 	}
 	defer root.Close()
-	if err := ensurePrivateDir(root, name); err != nil {
+	info, err = root.Stat(".")
+	if err != nil || !privatePermissions(info) {
+		return "", fmt.Errorf("opened certificate store is not private")
+	}
+	owner, err := publicationOwnership(info)
+	if err != nil {
+		return "", err
+	}
+	if err := ensurePrivateDir(root, name, owner); err != nil {
 		return "", err
 	}
 	cert, err := root.OpenRoot(name)
@@ -115,7 +123,7 @@ func publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now t
 	if expected != nil && active != *expected {
 		return "", fmt.Errorf("published generation changed during renewal; retry with the current generation")
 	}
-	if err := ensurePrivateDir(cert, "versions"); err != nil {
+	if err := ensurePrivateDir(cert, "versions", owner); err != nil {
 		return "", err
 	}
 	staged := filepath.Join("versions", ".pending-"+version)
@@ -133,9 +141,12 @@ func publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now t
 		name string
 		body []byte
 	}{{"certificate.pem", bundle.CertificatePEM}, {"chain.pem", bundle.ChainPEM}, {"private-key.pem", bundle.PrivateKeyPEM}} {
-		if err := writePublication(cert, filepath.Join(staged, artifact.name), artifact.body); err != nil {
+		if err := writePublication(cert, filepath.Join(staged, artifact.name), artifact.body, owner); err != nil {
 			return "", err
 		}
+	}
+	if err := setPrivateDirectoryOwner(cert, staged, owner); err != nil {
+		return "", err
 	}
 	if err := syncRootDir(cert, staged); err != nil {
 		return "", err
@@ -162,8 +173,11 @@ func publish(directory, name string, policy pki.Policy, bundle pki.Bundle, now t
 	return version, nil
 }
 
-func ensurePrivateDir(root *os.Root, path string) error {
-	if err := root.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
+func ensurePrivateDir(root *os.Root, path string, owner storeOwnership) error {
+	created := false
+	if err := root.Mkdir(path, 0700); err == nil {
+		created = true
+	} else if !os.IsExist(err) {
 		return err
 	}
 	info, err := root.Lstat(path)
@@ -173,15 +187,54 @@ func ensurePrivateDir(root *os.Root, path string) error {
 	if !info.IsDir() || !privatePermissions(info) {
 		return fmt.Errorf("managed storage path must be a private regular directory")
 	}
+	existing, err := publicationOwnership(info)
+	if err != nil {
+		return err
+	}
+	if existing != owner {
+		if !created {
+			return fmt.Errorf("managed storage directory ownership differs from certificate store")
+		}
+		if err := setPrivateDirectoryOwner(root, path, owner); err != nil {
+			return err
+		}
+	}
 	return syncRootDir(root, ".")
 }
 
-func writePublication(root *os.Root, path string, data []byte) error {
+type storeOwnership struct {
+	uid, gid int
+}
+
+func setPublicationOwner(file *os.File, owner storeOwnership) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	existing, err := publicationOwnership(info)
+	if err != nil || existing == owner {
+		return err
+	}
+	return file.Chown(owner.uid, owner.gid)
+}
+
+func setPrivateDirectoryOwner(root *os.Root, path string, owner storeOwnership) error {
+	dir, err := root.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(setPublicationOwner(dir, owner), dir.Close())
+}
+
+func writePublication(root *os.Root, path string, data []byte, owner storeOwnership) error {
 	file, err := root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
 	_, err = file.Write(data)
+	if err == nil {
+		err = setPublicationOwner(file, owner)
+	}
 	if err == nil {
 		err = file.Sync()
 	}

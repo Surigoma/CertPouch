@@ -1,5 +1,6 @@
 server:
   listen: "127.0.0.1:8443"
+  publication_refresh: "1m"
   tls:
     certificate: "/etc/certpouch/server.crt"
     private_key: "/etc/certpouch/server.key"

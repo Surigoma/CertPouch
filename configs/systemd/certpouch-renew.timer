@@ -1,0 +1,10 @@
+[Unit]
+Description=Check CertPouch certificates for renewal
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

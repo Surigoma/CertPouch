@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
 
@@ -26,18 +27,20 @@ import (
 )
 
 type Server struct {
-	Listen         string
-	TLSCertificate string
-	TLSPrivateKey  string
-	CertificateDir string
-	Policies       map[string]pki.Policy
-	Clients        []distribution.Client
+	Listen             string
+	TLSCertificate     string
+	TLSPrivateKey      string
+	CertificateDir     string
+	Policies           map[string]pki.Policy
+	Clients            []distribution.Client
+	PublicationRefresh time.Duration
 }
 
 type serverDocument struct {
 	Server struct {
-		Listen string `yaml:"listen"`
-		TLS    struct {
+		Listen             string `yaml:"listen"`
+		PublicationRefresh string `yaml:"publication_refresh"`
+		TLS                struct {
 			Certificate string `yaml:"certificate"`
 			PrivateKey  string `yaml:"private_key"`
 		} `yaml:"tls"`
@@ -101,6 +104,13 @@ func LoadServer(path string) (Server, error) {
 		Listen: doc.Server.Listen, TLSCertificate: doc.Server.TLS.Certificate,
 		TLSPrivateKey: doc.Server.TLS.PrivateKey, CertificateDir: doc.Storage.CertificateDir,
 		Policies: make(map[string]pki.Policy),
+	}
+	if value := doc.Server.PublicationRefresh; value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil || interval < time.Second {
+			return Server{}, fmt.Errorf("server.publication_refresh must be a duration of at least one second")
+		}
+		result.PublicationRefresh = interval
 	}
 	for i, cert := range doc.Certificates {
 		if _, exists := result.Policies[cert.Name]; cert.Name == "" || exists {

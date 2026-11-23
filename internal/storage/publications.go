@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/Surigoma/CertPouch/internal/distribution"
@@ -72,6 +73,7 @@ func Load(directory string, policies map[string]pki.Policy) ([]distribution.Publ
 			publications = append(publications, publication)
 		}
 	}
+	slices.SortFunc(publications, func(a, b distribution.Publication) int { return strings.Compare(a.Name, b.Name) })
 	return publications, nil
 }
 

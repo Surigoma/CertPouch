@@ -8,7 +8,9 @@ import (
 	"encoding/pem"
 	"math/big"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -83,4 +85,39 @@ func TestPublishPreservesCurrentOnValidationFailure(t *testing.T) {
 	if err != nil || stat.Mode().Perm() != 0600 {
 		t.Fatalf("previous generation or key permissions changed: %v, %v", stat, err)
 	}
+	t.Run("separate issuer keeps server ownership", func(t *testing.T) {
+		if os.Geteuid() != 0 {
+			t.Skip("running as root is required to verify ownership transfer")
+		}
+		account, err := user.Lookup("nobody")
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid, uidErr := strconv.Atoi(account.Uid)
+		gid, gidErr := strconv.Atoi(account.Gid)
+		if uidErr != nil || gidErr != nil || uid <= 0 || gid <= 0 {
+			t.Fatal("non-root server user required")
+		}
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chown(dir, uid, gid); err != nil {
+			t.Fatal(err)
+		}
+		version, err := Publish(dir, name, policy, bundle, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{name, filepath.Join(name, "versions", version), filepath.Join(name, "versions", version, "private-key.pem")} {
+			info, err := os.Stat(filepath.Join(dir, path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner, err := publicationOwnership(info)
+			if err != nil || owner != (storeOwnership{uid, gid}) || info.Mode().Perm()&0077 != 0 {
+				t.Fatalf("publication ownership or permissions mismatch for %s: %+v, %v", path, owner, err)
+			}
+		}
+	})
 }
