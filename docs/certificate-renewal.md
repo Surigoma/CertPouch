@@ -32,3 +32,13 @@ systemctl list-timers certpouch-renew.timer
 ```
 
 実行結果は `journalctl -u certpouch-renew.service` で確認する。署名の停止にはタイマーを停止し、稼働中のserviceがある場合は終了を確認する。
+
+## 公開証明書の期限監視
+
+```sh
+certpouch cert status --config /etc/certpouch/server.yaml --expires-within 168h
+```
+
+公開ストアのリーフ証明書から、世代、有効期間、フィンガープリント、状態をJSONで出力する。指定した期間以内に期限が来る証明書や、未公開、期限切れ、有効期間前、読み取り・解析エラーが一件でもあれば終了コード1を返す。すべて正常なら0、設定が不正なら2。閾値の既定値は30日。
+
+このコマンドはサーバーへの接続や秘密鍵の読み込みを行わず、ディスク上の公開証明書の期限を確認する。実際にHTTPSで取得できる世代とサービスが提示する証明書は、配布APIとクライアント側のTLS確認で別途検証する。

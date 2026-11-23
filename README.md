@@ -31,6 +31,7 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 | `certpouch dns sync --dry-run` | Preview NSD zone files from the DNS inventory snapshot |
 | `certpouch dns apply` | Activate a validated snapshot on a managed NSD server |
 | `certpouch cert renew` | Issue or renew configured certificates using an existing private CA |
+| `certpouch cert status` | Check the expiry and local state of published certificates |
 
 Most commands use `--config PATH`. DNS activation uses an explicit candidate and managed directory. Renewal also requires a separate issuer configuration. [DNS zone generation and activation](docs/dns-sync.md) · [Publishing certificates](docs/server-publication.md) · [Certificate renewal](docs/certificate-renewal.md)
 

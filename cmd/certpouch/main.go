@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Surigoma/CertPouch/internal/config"
 	"github.com/Surigoma/CertPouch/internal/distribution"
@@ -37,6 +38,9 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "cert" && args[1] == "renew" {
 		return runRenew(ctx, args[2:], os.Stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "cert" && args[1] == "status" {
+		return runPublicationStatus(args[2:], os.Stdout, stderr, time.Now())
+	}
 	if len(args) > 0 && args[0] == "pull" {
 		return runPull(ctx, args[1:], os.Stdout, stderr)
 	}
@@ -44,7 +48,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return runStatus(args[1:], os.Stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "server" {
-		fmt.Fprintln(stderr, "Usage: certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch dns sync --help\n       certpouch dns apply --help")
+		fmt.Fprintln(stderr, "Usage: certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch cert status --help\n       certpouch dns sync --help\n       certpouch dns apply --help")
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return 0
 		}

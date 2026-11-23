@@ -28,6 +28,8 @@
 - `dns sync` は既存キャッシュまたはCSVからNSD向けゾーン候補を生成する。`dns apply` は専用管理ディレクトリで候補と切り戻し用の世代を検証し、NSDへの反映をSOA serialで確認する。[DNSゾーン生成と適用](dns-sync.md)
 - `cert renew` は既存のRSA CAを使い、指定した証明書の初回発行・期限更新・公開を行う。dry-runではCA秘密鍵を読まない。暗号化PEMはOpenSSLでメモリ上に復号する。[証明書更新の設定と運用](certificate-renewal.md)
 - `server.publication_refresh` は公開ストアを定期的に読み直す。署名を管理者として実行した場合も、新しい世代はストアの所有者に合わせて保存する。証明書更新用systemd timerの例を追加した。
+- `cert status` は公開ストア上の証明書の期限をローカルで監視する。配布サーバーに接続せず、公開リーフだけを読む。[監視コマンド](certificate-renewal.md#公開証明書の期限監視)
+- WSLの一時的なsystemdタイマーで、テスト用中間CAによる期限切れ証明書の更新を確認した。`CERTPOUCH_TEST_SYSTEMD=1 go test -run TestRenewWithPrivateCA ./cmd/certpouch` で再現できる。
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業

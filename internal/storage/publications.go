@@ -44,25 +44,15 @@ func LoadDeployment(destination string) (string, pki.Bundle, bool, error) {
 // Load snapshots the current generation of each configured certificate.
 // A missing current link means the certificate has not yet been published.
 func Load(directory string, policies map[string]pki.Policy) ([]distribution.Publication, error) {
-	if !filepath.IsAbs(directory) {
-		return nil, fmt.Errorf("certificate directory must be absolute")
-	}
-	info, err := os.Lstat(directory)
+	root, err := openPublicationDirectory(directory)
 	if err != nil {
-		return nil, fmt.Errorf("inspect certificate directory: %w", err)
-	}
-	if !info.IsDir() || !privatePermissions(info) {
-		return nil, fmt.Errorf("certificate directory must be a private regular directory")
-	}
-	root, err := os.OpenRoot(directory)
-	if err != nil {
-		return nil, fmt.Errorf("open certificate directory: %w", err)
+		return nil, err
 	}
 	defer root.Close()
 
 	publications := make([]distribution.Publication, 0, len(policies))
 	for name, policy := range policies {
-		if !namePattern.MatchString(name) || !filepath.IsLocal(name) {
+		if !ValidPublicationName(name) {
 			return nil, fmt.Errorf("invalid certificate name")
 		}
 		publication, present, err := loadCurrent(root, name, policy, false)
@@ -77,40 +67,51 @@ func Load(directory string, policies map[string]pki.Policy) ([]distribution.Publ
 	return publications, nil
 }
 
+func ValidPublicationName(name string) bool {
+	return namePattern.MatchString(name) && filepath.IsLocal(name)
+}
+
+// ReadPublicLeaf opens only the public certificate of the current generation.
+func ReadPublicLeaf(directory, name string) (string, []byte, error) {
+	if !ValidPublicationName(name) {
+		return "", nil, fmt.Errorf("invalid certificate name")
+	}
+	root, err := openPublicationDirectory(directory)
+	if err != nil {
+		return "", nil, err
+	}
+	defer root.Close()
+	generation, version, err := openCurrent(root, name)
+	if err != nil || generation == nil {
+		return version, nil, err
+	}
+	defer generation.Close()
+	body, err := readArtifact(generation, "certificate.pem", false, false, distribution.MaxDownloadBytes)
+	return version, body, err
+}
+
+func openPublicationDirectory(directory string) (*os.Root, error) {
+	if !filepath.IsAbs(directory) {
+		return nil, fmt.Errorf("certificate directory must be absolute")
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return nil, fmt.Errorf("inspect certificate directory: %w", err)
+	}
+	if !info.IsDir() || !privatePermissions(info) {
+		return nil, fmt.Errorf("certificate directory must be a private regular directory")
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, fmt.Errorf("open certificate directory: %w", err)
+	}
+	return root, nil
+}
+
 func loadCurrent(root *os.Root, name string, policy pki.Policy, deployment bool) (distribution.Publication, bool, error) {
-	info, err := root.Lstat(name)
-	if os.IsNotExist(err) {
-		return distribution.Publication{}, false, nil
-	}
-	if err != nil {
+	generationRoot, version, err := openCurrent(root, name)
+	if err != nil || generationRoot == nil {
 		return distribution.Publication{}, false, err
-	}
-	if !info.IsDir() {
-		return distribution.Publication{}, false, fmt.Errorf("certificate location must be a directory")
-	}
-	current := filepath.Join(name, "current")
-	target, err := root.Readlink(current)
-	if os.IsNotExist(err) {
-		return distribution.Publication{}, false, nil
-	}
-	if err != nil {
-		return distribution.Publication{}, false, fmt.Errorf("read current link: %w", err)
-	}
-	version, ok := strings.CutPrefix(filepath.ToSlash(target), "versions/")
-	if !ok || !versionPattern.MatchString(version) {
-		return distribution.Publication{}, false, fmt.Errorf("current must reference a managed generation")
-	}
-	versions := filepath.Join(name, "versions")
-	generation := filepath.Join(versions, version)
-	for _, path := range []string{versions, generation} {
-		info, err := root.Lstat(path)
-		if err != nil || !info.IsDir() {
-			return distribution.Publication{}, false, fmt.Errorf("generation path must contain regular directories")
-		}
-	}
-	generationRoot, err := root.OpenRoot(generation)
-	if err != nil {
-		return distribution.Publication{}, false, fmt.Errorf("open generation: %w", err)
 	}
 	defer generationRoot.Close()
 	bundle, err := readBundle(generationRoot, deployment)
@@ -118,6 +119,44 @@ func loadCurrent(root *os.Root, name string, policy pki.Policy, deployment bool)
 		return distribution.Publication{}, false, err
 	}
 	return distribution.Publication{Name: name, Version: version, Current: true, Bundle: bundle, Policy: policy}, true, nil
+}
+
+func openCurrent(root *os.Root, name string) (*os.Root, string, error) {
+	info, err := root.Lstat(name)
+	if os.IsNotExist(err) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if !info.IsDir() {
+		return nil, "", fmt.Errorf("certificate location must be a directory")
+	}
+	current := filepath.Join(name, "current")
+	target, err := root.Readlink(current)
+	if os.IsNotExist(err) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("read current link: %w", err)
+	}
+	version, ok := strings.CutPrefix(filepath.ToSlash(target), "versions/")
+	if !ok || !versionPattern.MatchString(version) {
+		return nil, "", fmt.Errorf("current must reference a managed generation")
+	}
+	versions := filepath.Join(name, "versions")
+	generation := filepath.Join(versions, version)
+	for _, path := range []string{versions, generation} {
+		info, err := root.Lstat(path)
+		if err != nil || !info.IsDir() {
+			return nil, version, fmt.Errorf("generation path must contain regular directories")
+		}
+	}
+	generationRoot, err := root.OpenRoot(generation)
+	if err != nil {
+		return nil, version, fmt.Errorf("open generation: %w", err)
+	}
+	return generationRoot, version, nil
 }
 
 func readBundle(root *os.Root, deployment bool) (pki.Bundle, error) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -23,6 +24,19 @@ import (
 
 func TestRenewWithPrivateCA(t *testing.T) {
 	base := t.TempDir()
+	useSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
+	if useSystemd {
+		var err error
+		base, err = os.MkdirTemp("/run", "certpouch-renew-test-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := os.RemoveAll(base); err != nil {
+				t.Error(err)
+			}
+		})
+	}
 	store := filepath.Join(base, "store")
 	if err := os.Mkdir(store, 0700); err != nil {
 		t.Fatal(err)
@@ -131,7 +145,11 @@ profiles:
 		t.Fatal(err)
 	}
 	run(true, "renew")
-	run(false, "renew")
+	if useSystemd {
+		runRenewalTimer(t, base, store, server, renewal)
+	} else {
+		run(false, "renew")
+	}
 	run(false, "unchanged")
 	current, err := storage.Load(store, cfg.Policies)
 	if err != nil || len(current) != 1 || current[0].Version == oldID {
@@ -177,4 +195,70 @@ profiles:
 			t.Fatal("wrong passphrase was accepted or disclosed")
 		}
 	})
+}
+
+func runRenewalTimer(t *testing.T, base, store, server, renewal string) {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit := filepath.Base(base)
+	result := filepath.Join(store, ".timer-result")
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "systemd-run", "--unit="+unit, "--collect", "--on-active=1s",
+		"--timer-property=AccuracySec=100ms", "--property=UMask=0077", "--property=RuntimeMaxSec=15s",
+		"--property=NoNewPrivileges=true", "--property=ProtectSystem=strict", "--property=ProtectHome=true",
+		"--property=PrivateTmp=true", "--property=ReadWritePaths="+store,
+		"--setenv=CERTPOUCH_RENEW_TEST_SERVER="+server, "--setenv=CERTPOUCH_RENEW_TEST_CONFIG="+renewal,
+		"--setenv=CERTPOUCH_RENEW_TEST_RESULT="+result, executable, "-test.run=^TestRenewalTimerProcess$")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("start isolated renewal timer: %v: %s", err, output)
+	}
+	defer func() {
+		cleanup, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		_ = exec.CommandContext(cleanup, "systemctl", "stop", "--", unit+".timer", unit+".service").Run()
+	}()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("systemd did not complete renewal")
+		case <-ticker.C:
+			body, err := os.ReadFile(result)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(string(body), "0\nweb.example.internal\trenew\t") {
+				t.Fatalf("unexpected renewal timer result: %q", body)
+			}
+			return
+		}
+	}
+}
+
+// TestRenewalTimerProcess runs under the isolated timer with production-like restrictions.
+func TestRenewalTimerProcess(t *testing.T) {
+	server, renewal, result := os.Getenv("CERTPOUCH_RENEW_TEST_SERVER"), os.Getenv("CERTPOUCH_RENEW_TEST_CONFIG"), os.Getenv("CERTPOUCH_RENEW_TEST_RESULT")
+	if server == "" || renewal == "" || result == "" {
+		t.Skip("only used by the renewal timer")
+	}
+	var stdout, stderr bytes.Buffer
+	code := runRenew(t.Context(), []string{"--config", server, "--renewal-config", renewal}, &stdout, &stderr)
+	tmp := result + ".tmp"
+	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n%s%s", code, &stdout, &stderr)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, result); err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("renewal exited with status %d", code)
+	}
 }

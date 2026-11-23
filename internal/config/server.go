@@ -71,14 +71,38 @@ type clientDocument struct {
 }
 
 func LoadServer(path string) (Server, error) {
-	body, err := readFile(path, false, 1<<20)
-	if err != nil {
-		return Server{}, fmt.Errorf("read server config: %w", err)
-	}
-	doc, err := decodeServer(body)
+	doc, err := readServerDocument(path)
 	if err != nil {
 		return Server{}, err
 	}
+	return loadServerDocument(doc)
+}
+
+// PublicationLocations reads only the paths and names needed for local expiry monitoring.
+func PublicationLocations(path string) (string, []string, error) {
+	doc, err := readServerDocument(path)
+	if err != nil {
+		return "", nil, err
+	}
+	if !filepath.IsAbs(doc.Storage.CertificateDir) {
+		return "", nil, fmt.Errorf("storage.certificate_dir must be absolute")
+	}
+	var names []string
+	for _, certificate := range doc.Certificates {
+		names = append(names, certificate.Name)
+	}
+	return doc.Storage.CertificateDir, names, nil
+}
+
+func readServerDocument(path string) (serverDocument, error) {
+	body, err := readFile(path, false, 1<<20)
+	if err != nil {
+		return serverDocument{}, fmt.Errorf("read server config: %w", err)
+	}
+	return decodeServer(body)
+}
+
+func loadServerDocument(doc serverDocument) (Server, error) {
 	_, port, err := net.SplitHostPort(doc.Server.Listen)
 	portNumber, portErr := strconv.ParseUint(port, 10, 16)
 	if err != nil || portErr != nil || portNumber == 0 {
