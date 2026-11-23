@@ -2,9 +2,19 @@
 
 ## リリース候補
 
-Go 1.26.11以降を用意し、リリース対象コミットをきれいなチェックアウトで開く。LinuxまたはGit Bashで `bash scripts/package-release.sh` を実行すると、`dist` にLinux amd64・arm64のtar.gzと `SHA256SUMS` が生成される。バイナリと一緒に、同じコミットのREADME、設定例、systemdユニット例、運用文書、ブランド資産を収録する。検証は `cd dist && sha256sum -c SHA256SUMS` で実行する。出力先はスクリプトの第1引数で指定できる。
+Go 1.26.11以降を用意し、リリース対象コミットをきれいなチェックアウトで開く。LinuxまたはGit Bashで `bash scripts/package-release.sh` を実行すると、`dist` にLinux amd64・arm64のtar.gzと `SHA256SUMS` が生成される。バイナリと一緒に、同じコミットのREADME、設定例、systemdユニット例、運用文書、ブランド資産を収録する。出力先はスクリプトの第1引数で指定できる。
 
-GitHub Actionsの `Verify` はmainへのpushとPull Requestで `go vet` とraceテストを実行する。`Prepare release` は手動で候補を生成できる。リポジトリに `v` で始まるタグが追加されると、候補を検証してGitHub Releaseの下書きを作成する。公開前にリリースノート、対象アーキテクチャ、チェックサム、隔離環境の受け入れ結果を確認する。
+`bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"` は、両アーカイブのSHA-256と、内部バイナリのOS・アーキテクチャ・コミットID・未コミット変更の有無を検証する。Linux amd64では、アーカイブから取り出したamd64版で `server --help` も実行する。GitHub Actionsはこの検証に通った成果物を下書きへ添付する。
+
+GitHub Actionsの `Verify` はmainへのpushとPull Requestで `go vet` とraceテストを実行する。
+
+1. mainへのpushを受け、Release PleaseがConventional CommitsからバージョンとCHANGELOGを更新するリリースPRを作成する。初回の候補は `v0.1.0`。
+2. リリースPRをマージすると、Release PleaseがタグとGitHub Releaseの下書きを作成する。同じワークフローがタグのコミットを検証・梱包し、2種類のアーカイブと `SHA256SUMS` を下書きに添付する。
+3. ワークフローが成功し、成果物3点、リリースノート、隔離環境の受け入れ結果を確認してから下書きを手動で公開する。
+
+`Release` の手動実行では、`release_tag` を空にするとワークフローの成果物だけを生成する。既存の下書きタグを入力すると、そのコミットから作り直した成果物を下書きに添付できる。
+
+リリースPRを作成するには、リポジトリの Settings → Actions → General で **Allow GitHub Actions to create and approve pull requests** を有効にする。組み込みの `GITHUB_TOKEN` を使うため、リリースPRで必須チェックが待機する場合はGitHub上で実行を承認するか、リポジトリのCI運用に合わせて起動方法を設定する。[Release Pleaseの権限とCI](https://github.com/googleapis/release-please-action#github-credentials)
 
 ## DNSとSheets
 

@@ -1,19 +1,57 @@
-name: Prepare release
+name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing draft release tag to rebuild, or leave blank to only package
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 jobs:
-  package:
+  release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
     steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+
+  package:
+    needs: release-please
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.created == 'true') }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.target.outputs.tag }}
+    steps:
+      - name: Select build ref
+        id: target
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag || inputs.release_tag }}
+        run: |
+          if [[ -z "$RELEASE_TAG" ]]; then
+            echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          elif [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ref=refs/tags/$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Expected a release tag such as v0.1.0"
+            exit 1
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ steps.target.outputs.ref }}
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -25,26 +63,33 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
       - name: Package Linux binaries
         run: bash scripts/package-release.sh
+      - name: Verify packaged binaries
+        run: bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: certpouch-release
           path: dist
           if-no-files-found: error
 
-  draft:
-    if: github.ref_type == 'tag'
+  attach:
+    if: needs.package.outputs.tag != ''
     needs: package
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
     steps:
-      - name: Create draft release from verified artifacts
+      - name: Attach verified artifacts to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.package.outputs.tag }}
         run: |
+          if [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" != "true" ]]; then
+            echo "::error::Release $RELEASE_TAG must exist and be a draft"
+            exit 1
+          fi
           gh run download "$GITHUB_RUN_ID" --name certpouch-release --dir dist
           (cd dist && sha256sum -c SHA256SUMS)
-          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --generate-notes \
+          gh release upload "$RELEASE_TAG" --clobber \
             dist/certpouch-linux-amd64.tar.gz dist/certpouch-linux-arm64.tar.gz dist/SHA256SUMS
