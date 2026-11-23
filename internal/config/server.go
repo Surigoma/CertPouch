@@ -46,11 +46,7 @@ type serverDocument struct {
 		CertificateDir string `yaml:"certificate_dir"`
 		TrustCAFile    string `yaml:"trust_ca_file"`
 	} `yaml:"storage"`
-	DNSInventory *struct {
-		CacheFile      string `yaml:"cache_file"`
-		FallbackPrefix string `yaml:"fallback_prefix"`
-		Zone           string `yaml:"zone"`
-	} `yaml:"dns_inventory"`
+	DNSInventory *inventoryDocument    `yaml:"dns_inventory"`
 	Certificates []certificateDocument `yaml:"certificates"`
 	Clients      []clientDocument      `yaml:"clients"`
 }
@@ -118,14 +114,7 @@ func LoadServer(path string) (Server, error) {
 	}
 	var inventory *dns.Inventory
 	if source := doc.DNSInventory; source != nil {
-		if !filepath.IsAbs(source.CacheFile) {
-			return Server{}, fmt.Errorf("dns_inventory.cache_file must be absolute")
-		}
-		snapshot, err := readFile(source.CacheFile, false, 16<<20)
-		if err != nil {
-			return Server{}, fmt.Errorf("read DNS inventory: %w", err)
-		}
-		parsed, err := dns.ReadLegacyCache(bytes.NewReader(snapshot), source.FallbackPrefix, source.Zone)
+		parsed, err := source.load()
 		if err != nil {
 			return Server{}, err
 		}

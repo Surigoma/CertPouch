@@ -1,11 +1,26 @@
 package dns
 
 import (
+	"io"
 	"net/netip"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestCSVRetainsQuotedAliasesAndResetsPrefixPerSheet(t *testing.T) {
+	first := "\ufeff,,,,,,,,,\r\n/header,,,サーバ名,詳細,分類,別名,,,\r\n,192.0.2.,10,app,,,\" web, api \",,,\r\n,,11,,,,,,,reserved\r\n"
+	second := ",,20,other,,,,,,\n"
+	inventory, err := ReadLegacyCSV([]io.Reader{strings.NewReader(first), strings.NewReader(second)}, "198.51.100", "example.internal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := inventory.AllowedPrefixes([]string{"web.example.internal", "api.example.internal", "app.pvt.example.internal", "other.pvt.example.internal"})
+	want := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32"), netip.MustParsePrefix("198.51.100.20/32")}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("CSV mapping = %v, %v; want %v", got, err, want)
+	}
+}
 
 func TestReadLegacyCache(t *testing.T) {
 	cache := `{"valueRanges":[

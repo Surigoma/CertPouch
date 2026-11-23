@@ -2,6 +2,8 @@
 
 既存のゾーン生成処理がGoogle Sheetsの取得結果として保存する `cache.json` を参照できる。サーバーは起動時にスナップショットを読み込む。認証済みのクライアントには、接続元IPが証明書の論理名に対応するDNS台帳のIPと一致する場合に、その証明書の一覧表示・詳細取得・ダウンロードを許可する。
 
+台帳をCSVで出力している場合は、`cache_file` の代わりに `csv_files: ["/var/lib/dns-inventory/export.csv"]` を指定できる。複数のCSVを指定すると、シートごとにIPv4プレフィックスをリセットして同じ列規則で読む。
+
 サーバー設定に次の項目を加える。クライアントごとの `allowed_ips`、`allowed_certificates`、旧案の `allowed_hosts` はDNS台帳モードでは削除する。サーバーの `certificates` は引き続き公開対象とSAN・発行者の検証に使う。例のパス、ゾーン、初期IPv4プレフィックスは環境に合わせて設定する。
 
 ```yaml

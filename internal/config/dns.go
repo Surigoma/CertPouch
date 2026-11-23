@@ -1,20 +1,14 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
-	"path/filepath"
 
 	"github.com/Surigoma/CertPouch/internal/dns"
 )
 
 type dnsDocument struct {
-	Inventory struct {
-		CacheFile      string `yaml:"cache_file"`
-		FallbackPrefix string `yaml:"fallback_prefix"`
-		Zone           string `yaml:"zone"`
-	} `yaml:"dns_inventory"`
-	Zones struct {
+	Inventory inventoryDocument `yaml:"dns_inventory"`
+	Zones     struct {
 		Primary         string            `yaml:"primary"`
 		Mailbox         string            `yaml:"mailbox"`
 		Nameservers     []string          `yaml:"nameservers"`
@@ -37,14 +31,10 @@ func LoadDNSZones(path string) ([]dns.Zone, error) {
 	if err := decodeYAML(raw, &doc); err != nil {
 		return nil, err
 	}
-	if !filepath.IsAbs(doc.Inventory.CacheFile) || (doc.Zones.Serial == nil && len(doc.Zones.PreviousSerials) == 0) {
-		return nil, fmt.Errorf("DNS configuration requires an absolute cache_file and zones.serial or zones.previous_serials")
+	if doc.Zones.Serial == nil && len(doc.Zones.PreviousSerials) == 0 {
+		return nil, fmt.Errorf("DNS configuration requires zones.serial or zones.previous_serials")
 	}
-	raw, err = readFile(doc.Inventory.CacheFile, false, 16<<20)
-	if err != nil {
-		return nil, fmt.Errorf("read DNS inventory: %w", err)
-	}
-	inventory, err := dns.ReadLegacyCache(bytes.NewReader(raw), doc.Inventory.FallbackPrefix, doc.Inventory.Zone)
+	inventory, err := doc.Inventory.load()
 	if err != nil {
 		return nil, err
 	}

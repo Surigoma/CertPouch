@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,13 +12,6 @@ import (
 // ReadLegacyCache reads the Google Sheets batchGet snapshot written by zone_gene.py.
 // The fallback prefix and zone are supplied by the operator.
 func ReadLegacyCache(r io.Reader, fallback, zone string) (Inventory, error) {
-	if _, ok := hostname("host." + zone); !ok || strings.TrimSpace(zone) == "" {
-		return Inventory{}, fmt.Errorf("invalid legacy inventory zone")
-	}
-	fallback = strings.TrimSuffix(fallback, ".")
-	if _, err := netip.ParseAddr(fallback + ".0"); err != nil {
-		return Inventory{}, fmt.Errorf("invalid legacy inventory fallback prefix")
-	}
 	var response struct {
 		Ranges []struct {
 			Values [][]string `json:"values"`
@@ -31,10 +25,44 @@ func ReadLegacyCache(r io.Reader, fallback, zone string) (Inventory, error) {
 	if decoder.Decode(&extra) != io.EOF {
 		return Inventory{}, fmt.Errorf("unexpected data after Sheets snapshot")
 	}
+	groups := make([][][]string, 0, len(response.Ranges))
+	for _, group := range response.Ranges {
+		groups = append(groups, group.Values)
+	}
+	return legacyRows(groups, fallback, zone)
+}
+
+// ReadLegacyCSV reads one Google Sheets CSV export per source, with CSV quoting
+// honored for cells that contain comma-separated DNS aliases.
+func ReadLegacyCSV(sources []io.Reader, fallback, zone string) (Inventory, error) {
+	groups := make([][][]string, 0, len(sources))
+	for i, source := range sources {
+		reader := csv.NewReader(source)
+		reader.FieldsPerRecord = -1
+		rows, err := reader.ReadAll()
+		if err != nil {
+			return Inventory{}, fmt.Errorf("invalid DNS CSV source %d: %w", i+1, err)
+		}
+		if len(rows) != 0 && len(rows[0]) != 0 {
+			rows[0][0] = strings.TrimPrefix(rows[0][0], "\ufeff")
+		}
+		groups = append(groups, rows)
+	}
+	return legacyRows(groups, fallback, zone)
+}
+
+func legacyRows(groups [][][]string, fallback, zone string) (Inventory, error) {
+	if _, ok := hostname("host." + zone); !ok || strings.TrimSpace(zone) == "" {
+		return Inventory{}, fmt.Errorf("invalid legacy inventory zone")
+	}
+	fallback = strings.TrimSuffix(fallback, ".")
+	if _, err := netip.ParseAddr(fallback + ".0"); err != nil {
+		return Inventory{}, fmt.Errorf("invalid legacy inventory fallback prefix")
+	}
 	var records []Record
-	for rangeIndex, group := range response.Ranges {
+	for rangeIndex, rows := range groups {
 		prefix := fallback
-		for rowIndex, row := range group.Values {
+		for rowIndex, row := range rows {
 			if len(row) < 3 || row[0] != "" || row[2] == "" {
 				continue
 			}
