@@ -27,10 +27,11 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 | `certpouch pull` | Fetch and deploy certificate updates |
 | `certpouch pull --dry-run` | Preview pending updates |
 | `certpouch status` | Inspect local certificates and deployment status |
+| `certpouch cert publish` | Register an existing certificate as a new distribution generation |
 | `certpouch dns sync` | Synchronize DNS zones |
 | `certpouch cert renew` | Renew certificates that are due |
 
-The `server`, `pull`, and `status` commands require `--config PATH`. DNS sync and certificate renewal are planned. [Example client configuration](configs/client.example.yaml)
+The `server`, `pull`, `status`, and `cert publish` commands require `--config PATH`. DNS sync and certificate renewal are planned. [Publishing certificates](docs/server-publication.md) · [Example client configuration](configs/client.example.yaml)
 
 ## Documentation and license
 

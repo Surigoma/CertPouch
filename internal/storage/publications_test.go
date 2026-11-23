@@ -11,6 +11,9 @@ import (
 
 func TestLoadCurrent(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	const name = "web.example.internal"
 	version := strings.Repeat("a", 32)
 	generation := filepath.Join(root, name, "versions", version)

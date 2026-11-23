@@ -44,6 +44,15 @@ type Publication struct {
 	Policy  pki.Policy
 }
 
+// CheckPublication verifies that a candidate can be served by the API.
+func CheckPublication(publication Publication, now time.Time) error {
+	if !namePattern.MatchString(publication.Name) || !versionPattern.MatchString(publication.Version) {
+		return fmt.Errorf("invalid publication name or version")
+	}
+	_, err := buildGeneration(publication, now)
+	return err
+}
+
 type generation struct {
 	metadata Metadata
 	body     []byte
