@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,6 +74,33 @@ certificates:
 clients:
   - {id: workflow, enabled: true, allowed_ips: ["127.0.0.1"], allowed_certificates: [web.example.internal], token_hash_file: %q}
 `, addr, tlsCertFile, tlsKeyFile, store, caFile, caFile, hashFile)))
+	unit := "workflow.service"
+	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
+	logPath := filepath.Join(base, "systemctl.log")
+	if realSystemd {
+		suffix := make([]byte, 8)
+		if _, err := rand.Read(suffix); err != nil {
+			t.Fatal(err)
+		}
+		unit = fmt.Sprintf("certpouch-workflow-%x.service", suffix)
+		cmd := exec.Command("systemd-run", "--unit="+unit, "--collect", "--property=Type=exec",
+			"--property=ExecReload=/usr/bin/touch "+logPath, "/usr/bin/sleep", "infinity")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("start isolated systemd consumer: %v: %s", err, output)
+		}
+		t.Cleanup(func() {
+			if output, err := exec.Command("systemctl", "stop", "--", unit).CombinedOutput(); err != nil {
+				t.Errorf("stop isolated consumer: %v: %s", err, output)
+			}
+		})
+	} else {
+		shimDir := mkdir("bin")
+		if err := os.WriteFile(filepath.Join(shimDir, "systemctl"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CERTPOUCH_TEST_SYSTEMCTL_LOG\"\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("CERTPOUCH_TEST_SYSTEMCTL_LOG", logPath)
+	}
 	clientConfig := write("client.yaml", []byte(fmt.Sprintf(`
 server: {url: %q, ca_file: %q}
 client: {id: workflow, token_file: %q}
@@ -82,16 +110,8 @@ certificates:
     destination: %q
     expected_dns_sans: [web.example.internal]
     issuer_certificate: %q
-    service: {unit: workflow.service, action: reload}
-`, origin, caFile, tokenFile, caFile, destination, caFile)))
-
-	shimDir := mkdir("bin")
-	logPath := filepath.Join(base, "systemctl.log")
-	if err := os.WriteFile(filepath.Join(shimDir, "systemctl"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CERTPOUCH_TEST_SYSTEMCTL_LOG\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CERTPOUCH_TEST_SYSTEMCTL_LOG", logPath)
+    service: {unit: %q, action: reload}
+`, origin, caFile, tokenFile, caFile, destination, caFile, unit)))
 	var output, diagnostic bytes.Buffer
 	publish := func(cert, key string) string {
 		t.Helper()
@@ -161,6 +181,7 @@ certificates:
 		}
 	}
 	first := publish(firstFile, firstKeyFile)
+	var firstReload time.Time
 	func() {
 		stop := start()
 		defer stop()
@@ -169,14 +190,30 @@ certificates:
 			t.Fatal("dry-run changed the active generation")
 		}
 		pull("install", first, false)
+		if realSystemd {
+			firstReload = reloadTime(t, logPath)
+		}
 		pull("unchanged", first, false)
+		if realSystemd && !reloadTime(t, logPath).Equal(firstReload) {
+			t.Fatal("unchanged certificate triggered a systemd reload")
+		}
 	}()
 	second := publish(secondFile, secondKeyFile)
 	func() {
 		stop := start()
 		defer stop()
 		pull("update", second, false)
+		var secondReload time.Time
+		if realSystemd {
+			secondReload = reloadTime(t, logPath)
+			if !secondReload.After(firstReload) {
+				t.Fatal("updated certificate did not trigger a systemd reload")
+			}
+		}
 		pull("unchanged", second, false)
+		if realSystemd && !reloadTime(t, logPath).Equal(secondReload) {
+			t.Fatal("unchanged updated certificate triggered a systemd reload")
+		}
 	}()
 
 	output.Reset()
@@ -184,6 +221,9 @@ certificates:
 	if code := runStatus([]string{"--config", clientConfig}, &output, &diagnostic); code != 0 ||
 		!strings.Contains(output.String(), second) || !strings.Contains(output.String(), "last_successful_sync") {
 		t.Fatalf("offline status exit %d: %s %s", code, &output, &diagnostic)
+	}
+	if realSystemd {
+		return
 	}
 	log, err := os.ReadFile(logPath)
 	if err != nil {
@@ -193,6 +233,15 @@ certificates:
 	if string(log) != want+want {
 		t.Fatalf("unexpected service operations: %q", log)
 	}
+}
+
+func reloadTime(t *testing.T, path string) time.Time {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("read systemd reload marker: %v", err)
+	}
+	return info.ModTime()
 }
 
 func workflowCertificates(t *testing.T) ([]byte, *x509.Certificate, []byte, []byte, []byte, []byte, []byte, []byte) {

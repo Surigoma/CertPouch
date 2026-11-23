@@ -1,0 +1,20 @@
+[Unit]
+Description=CertPouch HTTPS certificate distribution server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=certpouch
+Group=certpouch
+ExecStart=/usr/local/bin/certpouch server --config /etc/certpouch/server.yaml
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
