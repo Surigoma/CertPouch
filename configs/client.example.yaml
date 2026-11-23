@@ -1,0 +1,14 @@
+server:
+  url: "https://cert-server.example.internal:8443"
+  ca_file: "/etc/ssl/certpouch/server-ca.crt"
+client:
+  id: "web-server-01"
+  token_file: "/etc/certpouch/client.token"
+validation:
+  trust_ca_file: "/etc/ssl/certpouch/issuers.pem"
+certificates:
+  - name: "web.example.internal"
+    destination: "/etc/certpouch/certificates/web.example.internal"
+    expected_dns_sans: ["web.example.internal"]
+    expected_ip_sans: []
+    issuer_certificate: "/etc/ssl/certpouch/intermediate.crt"

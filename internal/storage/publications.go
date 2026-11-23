@@ -19,6 +19,27 @@ var (
 	versionPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 )
 
+// LoadDeployment reads the generation managed beneath a single destination.
+func LoadDeployment(destination string) (string, pki.Bundle, bool, error) {
+	info, err := os.Lstat(destination)
+	if os.IsNotExist(err) {
+		return "", pki.Bundle{}, false, nil
+	}
+	if err != nil {
+		return "", pki.Bundle{}, false, err
+	}
+	if !filepath.IsAbs(destination) || !info.IsDir() {
+		return "", pki.Bundle{}, false, fmt.Errorf("invalid deployment destination")
+	}
+	root, err := os.OpenRoot(destination)
+	if err != nil {
+		return "", pki.Bundle{}, false, err
+	}
+	defer root.Close()
+	entry, present, err := loadCurrent(root, ".", pki.Policy{})
+	return entry.Version, entry.Bundle, present, err
+}
+
 // Load snapshots the current generation of each configured certificate.
 // A missing current link means the certificate has not yet been published.
 func Load(directory string, policies map[string]pki.Policy) ([]distribution.Publication, error) {

@@ -6,7 +6,7 @@
 
 CertPouch is a self-hosted project for private DNS, private PKI, and pull-based certificate distribution. It is designed as a single Go binary that works with your existing private CA.
 
-**Project status:** The HTTPS distribution server is implemented. The pull client and deployment workflow are planned.
+**Project status:** The HTTPS distribution server and pull preview are implemented. Automatic deployment is planned.
 
 ## How it works
 
@@ -30,7 +30,7 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 | `certpouch dns sync` | Synchronize DNS zones |
 | `certpouch cert renew` | Renew certificates that are due |
 
-The `server` command requires `--config PATH`. The remaining commands are planned.
+The `server` and `pull --dry-run` commands require `--config PATH`. The remaining commands are planned. [Example client configuration](configs/client.example.yaml)
 
 ## Documentation and license
 

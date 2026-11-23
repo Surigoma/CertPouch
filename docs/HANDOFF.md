@@ -13,12 +13,14 @@
 - `internal/storage` は管理対象の `current` リンクを解決して、配布APIが検証する証明書世代を読み出す。
 - `certpouch server --config PATH` はYAML設定を読み込み、ストアを初期化してHTTPS配布サーバーを起動する。構成例は [server.example.yaml](../configs/server.example.yaml) を参照。
 - DNS台帳モードでは、Google Sheetsの既存キャッシュにある証明書名と接続元IPの一致で取得を認可する。別ホストへの許可はクライアント・証明書単位の例外設定で追加する。[DNS台帳の設定手順](dns-inventory.md)
+- `internal/client` はHTTPSで在庫を取得し、選択世代のダウンロードを固定したうえでチェックサム・フィンガープリント・ローカル証明書ポリシーを検証する。
+- `certpouch pull --dry-run --config PATH` は、許可された在庫と設定済み配置先を比較し、`install`、`update`、`unchanged` を表示する。[クライアント設定例](../configs/client.example.yaml)
 - WindowsのGo 1.25.3で `go test ./...` と `go vet ./...` が通過した。
 
 ## 次の作業
 
 1. Linuxでサーバー起動とファイル権限を確認する。現在のストア読み込みは起動時の公開世代を対象とする。
-2. Pullと配置を実装する。整合性とローカルの検証ポリシーを確認してから切り替え、サービス操作が失敗したら旧世代へ復旧する。[配置仕様](SPEC/04-certificate-deployment.md)
+2. 通常のPullを取得処理と配置へ接続する。検証後に切り替え、サービス操作が失敗したら旧世代へ復旧する。[配置仕様](SPEC/04-certificate-deployment.md)
 3. クライアント設定例、systemd timer例、Linux 1ホストへの導入手順を用意する。Keycloakの証明書形式とreload/restartの動作は隔離環境で確認する。[受け入れ条件](SPEC/06-verification-operations.md)
 
-世代の登録・更新、Pullと配置、statusは未実装。Goの検証ではLinuxのファイル権限、systemd、Keycloak連携は確認していない。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。
+世代の登録・更新、通常のPullと配置、statusは未実装。Goの検証ではLinuxのファイル権限、systemd、Keycloak連携は確認していない。初回実装の範囲は証明書配布とし、DNS同期とCAによる発行は後続フェーズで扱う。

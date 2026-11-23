@@ -143,16 +143,21 @@ func LoadServer(path string) (Server, error) {
 
 func decodeServer(body []byte) (serverDocument, error) {
 	var doc serverDocument
+	err := decodeYAML(body, &doc)
+	return doc, err
+}
+
+func decodeYAML(body []byte, target any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(body), yaml.Strict())
-	if err := dec.Decode(&doc); err != nil {
+	if err := dec.Decode(target); err != nil {
 		// YAML diagnostics can contain input lines. Avoid logging configuration contents.
-		return serverDocument{}, fmt.Errorf("invalid server YAML: check syntax, field names, types and duplicate keys")
+		return fmt.Errorf("invalid YAML: check syntax, field names, types and duplicate keys")
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return serverDocument{}, fmt.Errorf("server YAML must contain exactly one document")
+		return fmt.Errorf("YAML must contain exactly one document")
 	}
-	return doc, nil
+	return nil
 }
 
 func (c certificateDocument) policy(roots *x509.CertPool) (pki.Policy, error) {
