@@ -61,6 +61,9 @@ func LoadSheetsFetch(path string) (SheetsFetch, error) {
 	if err != nil {
 		return SheetsFetch{}, err
 	}
+	if err := sheets.ValidateRequest(doc.Sheets.SpreadsheetID, doc.Sheets.Ranges); err != nil {
+		return SheetsFetch{}, err
+	}
 	return SheetsFetch{
 		CacheFile: doc.Inventory.CacheFile, FallbackPrefix: doc.Inventory.FallbackPrefix, Zone: doc.Inventory.Zone,
 		SpreadsheetID: doc.Sheets.SpreadsheetID, Ranges: doc.Sheets.Ranges, Credentials: credentials,

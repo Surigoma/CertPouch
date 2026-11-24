@@ -13,7 +13,11 @@ for arch in amd64 arm64; do
   name="certpouch-linux-$arch"
   mkdir "$build_dir/$name"
   CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -o "$build_dir/$name/certpouch" ./cmd/certpouch
-  git archive HEAD LICENSE README.md README.ja.md assets configs docs | tar -xf - -C "$build_dir/$name"
+  git archive HEAD LICENSE README.md README.ja.md assets configs docs scripts/install.sh scripts/uninstall.sh | tar -xf - -C "$build_dir/$name"
+  mv "$build_dir/$name/scripts/install.sh" "$build_dir/$name/install.sh"
+  mv "$build_dir/$name/scripts/uninstall.sh" "$build_dir/$name/uninstall.sh"
+  rmdir "$build_dir/$name/scripts"
+  chmod 0755 "$build_dir/$name/install.sh" "$build_dir/$name/uninstall.sh"
   tar -czf "$staged_output/$name.tar.gz" -C "$build_dir" "$name"
   archives+=("$name.tar.gz")
 done

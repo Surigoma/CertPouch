@@ -19,6 +19,8 @@
 | 目的 | 手順 |
 | --- | --- |
 | 初回設定、証明書の登録と配布 | [初回導入](../quickstart.md)・[サーバー](../server-publication.md)・[クライアント](../client-deployment.md) |
+| CLIで初期設定を生成 | [設定コマンド](../configure.md) |
+| Linuxへのバイナリ配置と削除 | [インストールと削除](../linux-installation.md) |
 | 接続元の制限とクライアント管理 | [DNS台帳による認可](../dns-inventory.md)・[mTLS](../mtls.md)・[失効リスト](../client-revocation.md) |
 | 台帳取得とNSD管理 | [Sheetsからの取得](../sheets-fetch.md)・[NSDへの適用](../dns-sync.md) |
 | 既存CAでの発行・更新 | [証明書更新](../certificate-renewal.md) |

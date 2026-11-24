@@ -26,6 +26,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "configure" {
+		return runConfigure(args[1:], os.Stdin, os.Stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "init" {
 		return runInit(args[1:], os.Stdout, stderr)
 	}
@@ -57,7 +60,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return runStatus(args[1:], os.Stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "server" {
-		fmt.Fprintln(stderr, "Usage: certpouch init server|client --help\n       certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch cert status --help\n       certpouch dns fetch --help\n       certpouch dns sync --help\n       certpouch dns apply --help\n       certpouch dns diff --help")
+		fmt.Fprintln(stderr, "Usage: certpouch configure dns|server|client --help\n       certpouch init server|client --help\n       certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch cert status --help\n       certpouch dns fetch --help\n       certpouch dns sync --help\n       certpouch dns apply --help\n       certpouch dns diff --help")
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return 0
 		}

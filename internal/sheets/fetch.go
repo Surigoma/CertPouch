@@ -61,8 +61,25 @@ func newClient(transport http.RoundTripper, tokenURL, sheetsURL string) *Client 
 }
 
 func (c *Client) Fetch(ctx context.Context, credentials Credentials, spreadsheet string, ranges []string) ([]byte, error) {
-	if credentials.config == nil || !spreadsheetPattern.MatchString(spreadsheet) || len(ranges) == 0 || len(ranges) > 100 {
-		return nil, fmt.Errorf("invalid spreadsheet ID, service account, or number of ranges")
+	if credentials.config == nil {
+		return nil, fmt.Errorf("invalid service account")
+	}
+	requested, err := validateRequest(spreadsheet, ranges)
+	if err != nil {
+		return nil, err
+	}
+	return c.fetch(ctx, credentials, spreadsheet, ranges, requested)
+}
+
+// ValidateRequest checks identifiers and ranges without performing network I/O.
+func ValidateRequest(spreadsheet string, ranges []string) error {
+	_, err := validateRequest(spreadsheet, ranges)
+	return err
+}
+
+func validateRequest(spreadsheet string, ranges []string) ([]sheetRange, error) {
+	if !spreadsheetPattern.MatchString(spreadsheet) || len(ranges) == 0 || len(ranges) > 100 {
+		return nil, fmt.Errorf("invalid spreadsheet ID or number of ranges")
 	}
 	requested := make([]sheetRange, 0, len(ranges))
 	seen := make(map[sheetRange]bool)
@@ -74,6 +91,10 @@ func (c *Client) Fetch(ctx context.Context, credentials Credentials, spreadsheet
 		seen[region] = true
 		requested = append(requested, region)
 	}
+	return requested, nil
+}
+
+func (c *Client) fetch(ctx context.Context, credentials Credentials, spreadsheet string, ranges []string, requested []sheetRange) ([]byte, error) {
 	base := &http.Client{
 		Transport:     boundedTransport{base: c.transport, tokenURL: c.tokenURL},
 		Timeout:       30 * time.Second,

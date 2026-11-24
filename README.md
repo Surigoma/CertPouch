@@ -19,6 +19,8 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 
 ## Configuration for a first deployment
 
+Linux releases include scripts that install or remove the binary while preserving operational data. See [Linux installation and removal](docs/linux-installation.md).
+
 Use `certpouch init client` and `certpouch init server` to create the initial configuration, then follow the walkthrough to publish a certificate and perform the first pull. [First deployment walkthrough (Japanese)](docs/quickstart.md)
 
 To distribute certificates using an existing DNS inventory cache or CSV, start with one YAML file on the server and one on each receiving host. Each YAML file references the TLS, CA, and token files it needs.
@@ -39,6 +41,7 @@ Add YAML files as you enable features. Use `sheets-fetch.yaml` for direct Google
 
 | Command | Purpose |
 | --- | --- |
+| `certpouch configure dns` | Generate DNS and Sheets-fetch configuration interactively or from flags |
 | `certpouch init server` / `certpouch init client` | Generate the initial distribution configuration |
 | `certpouch server` | Start the HTTPS distribution server |
 | `certpouch pull` | Fetch and deploy certificate updates |

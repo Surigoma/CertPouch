@@ -19,6 +19,8 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 
 ## 最初に用意する設定
 
+Linuxリリースには、運用データを保持したままバイナリを配置・削除するスクリプトが含まれます。[Linuxへのインストールと削除](docs/linux-installation.md)
+
 設定値の入手先、トークンの作成、初回Pullまでを順に確認できます。[証明書を1台に配布する手順](docs/quickstart.md)
 
 既存のDNS台帳キャッシュまたはCSVで証明書配布を始める場合、YAMLはサーバーに1枚、取得するホストごとに1枚です。TLS証明書、CA、トークンなどのファイルは各YAMLから参照します。
@@ -39,6 +41,7 @@ CertPouchは、プライベートDNS、プライベートPKI、Pull型の証明�
 
 | コマンド | 用途 |
 | --- | --- |
+| `certpouch configure dns` | CUIまたはフラグでDNS・Sheets取得設定を生成 |
 | `certpouch init server` / `certpouch init client` | サーバー・取得ホストの初期設定を作成 |
 | `certpouch server` | HTTPS配布サーバーを起動 |
 | `certpouch pull` | 証明書の更新を取得して配置 |

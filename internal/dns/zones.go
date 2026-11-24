@@ -30,30 +30,44 @@ type zoneRecord struct {
 	owner, kind, value string
 }
 
-func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
+// ValidateZoneOptions checks settings that do not depend on inventory data.
+func ValidateZoneOptions(options ZoneOptions) error {
+	_, _, _, _, err := normalizeZoneOptions(options)
+	return err
+}
+
+func normalizeZoneOptions(options ZoneOptions) (string, string, string, []string, error) {
 	forward, ok := hostname(options.Forward)
 	if !ok || strings.HasSuffix(forward, ".in-addr.arpa") || strings.HasSuffix(forward, ".ip6.arpa") {
-		return nil, fmt.Errorf("invalid forward zone")
+		return "", "", "", nil, fmt.Errorf("invalid forward zone")
 	}
 	primary, primaryOK := hostname(options.Primary)
 	mailbox, mailboxOK := hostname(options.Mailbox)
 	if !primaryOK || !mailboxOK || options.TTL == 0 || options.TTL > 2147483647 ||
 		options.Refresh == 0 || options.Retry == 0 || options.Expire <= options.Refresh ||
 		options.NegativeTTL == 0 || options.NegativeTTL > 2147483647 {
-		return nil, fmt.Errorf("invalid zone TTL or SOA settings")
+		return "", "", "", nil, fmt.Errorf("invalid zone TTL or SOA settings")
 	}
 	var nameservers []string
 	for _, raw := range options.Nameservers {
 		ns, ok := hostname(raw)
 		if !ok {
-			return nil, fmt.Errorf("invalid nameserver")
+			return "", "", "", nil, fmt.Errorf("invalid nameserver")
 		}
 		nameservers = append(nameservers, ns)
 	}
 	slices.Sort(nameservers)
 	nameservers = slices.Compact(nameservers)
 	if !slices.Contains(nameservers, primary) {
-		return nil, fmt.Errorf("nameservers must include the SOA primary")
+		return "", "", "", nil, fmt.Errorf("nameservers must include the SOA primary")
+	}
+	return forward, primary, mailbox, nameservers, nil
+}
+
+func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
+	forward, primary, mailbox, nameservers, err := normalizeZoneOptions(options)
+	if err != nil {
+		return nil, err
 	}
 	if len(inventory.addresses) == 0 {
 		return nil, fmt.Errorf("refusing to generate zones from an empty inventory")

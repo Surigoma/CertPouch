@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/Surigoma/CertPouch/internal/dns"
 )
@@ -27,6 +28,39 @@ type dnsDocument struct {
 			Priority *uint16 `yaml:"priority"`
 		} `yaml:"static_records"`
 	} `yaml:"zones"`
+}
+
+func ValidateDNSConfig(path string) error {
+	raw, err := readFile(path, false, 1<<20)
+	if err != nil {
+		return fmt.Errorf("read DNS config: %w", err)
+	}
+	var doc dnsDocument
+	if err := decodeYAML(raw, &doc); err != nil {
+		return err
+	}
+	if doc.Zones.Serial == nil && len(doc.Zones.PreviousSerials) == 0 {
+		return fmt.Errorf("DNS configuration requires zones.serial or zones.previous_serials")
+	}
+	if (doc.Inventory.CacheFile == "") == (len(doc.Inventory.CSVFiles) == 0) {
+		return fmt.Errorf("configure exactly one of dns_inventory.cache_file or dns_inventory.csv_files")
+	}
+	if doc.Inventory.CacheFile != "" && !filepath.IsAbs(doc.Inventory.CacheFile) {
+		return fmt.Errorf("dns_inventory.cache_file must be absolute")
+	}
+	if _, err := doc.Inventory.freshnessMaxAge(); err != nil {
+		return err
+	}
+	var serial uint32
+	if doc.Zones.Serial != nil {
+		serial = *doc.Zones.Serial
+	}
+	return dns.ValidateZoneOptions(dns.ZoneOptions{
+		Forward: doc.Inventory.Zone, Primary: doc.Zones.Primary, Mailbox: doc.Zones.Mailbox,
+		Nameservers: doc.Zones.Nameservers, TTL: doc.Zones.TTL, Serial: serial,
+		Refresh: doc.Zones.Refresh, Retry: doc.Zones.Retry, Expire: doc.Zones.Expire,
+		NegativeTTL: doc.Zones.NegativeTTL,
+	})
 }
 
 func LoadDNSZones(path, serialDirectory, baselineDirectory string) ([]dns.Zone, error) {

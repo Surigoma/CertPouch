@@ -30,6 +30,14 @@ for arch in amd64 arm64; do
   if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 && "$arch" == amd64 ]]; then
     chmod 0700 "$binary"
     "$binary" server --help > /dev/null 2>&1
+    install_root="$scratch/install-root"
+    tar -xOzf "$name.tar.gz" "$name/install.sh" > "$scratch/install.sh"
+    tar -xOzf "$name.tar.gz" "$name/uninstall.sh" > "$scratch/uninstall.sh"
+    chmod 0700 "$scratch/install.sh" "$scratch/uninstall.sh"
+    "$scratch/install.sh" --prefix "$install_root" "$binary" > /dev/null
+    "$install_root/bin/certpouch" server --help > /dev/null 2>&1
+    "$install_root/share/certpouch/uninstall.sh" --prefix "$install_root" > /dev/null
+    test ! -e "$install_root/bin/certpouch"
   fi
   echo "$name verified"
 done
