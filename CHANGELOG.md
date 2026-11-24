@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/Surigoma/CertPouch/compare/v0.2.0...v0.2.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** remediate OpenTelemetry vulnerability ([bba278d](https://github.com/Surigoma/CertPouch/commit/bba278d370b66d9626aa9661b9c49df5b14c7d5c))
+
 ## [0.2.0](https://github.com/Surigoma/CertPouch/compare/v0.1.0...v0.2.0) (2026-11-24)
 
 
