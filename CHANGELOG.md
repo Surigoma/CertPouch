@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/Surigoma/CertPouch/compare/v0.1.0...v0.2.0) (2026-11-24)
+
+
+### Features
+
+* add Linux setup and guided configuration ([70ed3f2](https://github.com/Surigoma/CertPouch/commit/70ed3f207c39f7957d5e2d745e76bce14237e5d3))
+
 ## 0.1.0 (2026-11-23)
 
 
