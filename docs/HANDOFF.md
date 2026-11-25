@@ -15,7 +15,7 @@
 - `internal/server` にTLS 1.2以上での起動とcontext終了時の停止処理を追加した。
 - Ginのプロキシ信頼と自動リダイレクトを無効化し、IP許可判定は接続元アドレスを使う。
 - `internal/storage` は管理対象の `current` リンクを解決して、配布APIが検証する証明書世代を読み出す。
-- `init client` と `init server` は新規ディレクトリに検証済みの初期設定と配置先・公開ストアを作成する。配布サーバーへ渡す資格情報はクライアントトークンのハッシュ。[初期化手順](quickstart.md)
+- `configure client` と `configure server` は新規ディレクトリに検証済みの初期設定と配置先・公開ストアを作成する。配布サーバーへ渡す資格情報はクライアントトークンのハッシュ。[初期化手順](quickstart.md)
 - `certpouch server --config PATH` はYAMLと既存の公開ストアを検証してHTTPS配布サーバーを起動する。構成例は [server.example.yaml](../configs/server.example.yaml) を参照。
 - DNS台帳モードでは、Google Sheetsの既存キャッシュにある証明書名と接続元IPの一致で取得を認可する。別ホストへの許可はクライアント・証明書単位の例外設定で追加する。[DNS台帳の設定手順](dns-inventory.md)
 - `internal/client` はHTTPSで在庫を取得し、選択世代のダウンロードを固定したうえでチェックサム・フィンガープリント・ローカル証明書ポリシーを検証する。

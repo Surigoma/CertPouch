@@ -33,7 +33,18 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return runConfigure(args[1:], os.Stdin, os.Stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "init" {
-		return runInit(args[1:], os.Stdout, stderr)
+		fmt.Fprintln(stderr, "Use certpouch configure server|client --help.")
+		return 2
+	}
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+		switch args[0] {
+		case "dns":
+			fmt.Fprintln(stderr, "Usage: certpouch dns fetch|sync|diff|apply --help")
+			return 0
+		case "cert":
+			fmt.Fprintln(stderr, "Usage: certpouch cert publish|renew|status --help")
+			return 0
+		}
 	}
 	if len(args) >= 2 && args[0] == "dns" && args[1] == "sync" {
 		return runDNSSync(ctx, args[2:], os.Stdout, stderr)
@@ -63,9 +74,8 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		return runStatus(args[1:], os.Stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "server" {
-		fmt.Fprintln(stderr, "Usage: certpouch configure dns|server|client --help\n       certpouch init server|client --help\n       certpouch server --config PATH\n       certpouch pull [--dry-run] --config PATH\n       certpouch status --config PATH\n       certpouch cert publish --help\n       certpouch cert renew --help\n       certpouch cert status --help\n       certpouch dns fetch --help\n       certpouch dns sync --help\n       certpouch dns apply --help\n       certpouch dns diff --help")
+		fmt.Fprint(stderr, commandHelp)
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-			fmt.Fprintln(stderr, "       certpouch pipeline --help")
 			return 0
 		}
 		return 2
@@ -153,3 +163,20 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	return 0
 }
+
+const commandHelp = `Usage: certpouch <command> [options]
+
+Setup and regular operation:
+  configure dns|server|client   Generate initial configuration
+  pipeline --watch              Synchronize Sheets, NSD, and certificates
+  server                        Serve certificates over HTTPS
+  pull                          Retrieve and deploy certificates
+  status                        Inspect local deployment state
+
+Manual operations and diagnostics:
+  pipeline                      Stage or explicitly apply a DNS candidate
+  dns fetch|sync|diff|apply     Run individual DNS operations
+  cert publish|renew|status     Manage and inspect server certificates
+
+Run certpouch <command> --help for options.
+`

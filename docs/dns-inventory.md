@@ -6,7 +6,7 @@
 
 `certpouch dns fetch` を使い、Google Sheetsからキャッシュを直接更新することもできる。[取得設定と手順](sheets-fetch.md)
 
-サーバー設定に次の項目を加える。台帳モードではクライアントごとの `allowed_ips` と `allowed_certificates` を省く。サーバーの `certificates` には公開対象とSAN・発行者の検証条件を設定する。`init server` でも台帳モードの設定を生成できる。[初回導入](quickstart.md)
+サーバー設定に次の項目を加える。台帳モードではクライアントごとの `allowed_ips` と `allowed_certificates` を省く。サーバーの `certificates` には公開対象とSAN・発行者の検証条件を設定する。`configure server` でも台帳モードの設定を生成できる。[初回導入](quickstart.md)
 
 ```yaml
 dns_inventory:

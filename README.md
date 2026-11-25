@@ -21,7 +21,7 @@ A central server stores certificates and their keys. In DNS inventory mode, an a
 
 Linux releases include scripts that install or remove the binary while preserving operational data. See [Linux installation and removal](docs/linux-installation.md).
 
-Use `certpouch init client` and `certpouch init server` to create the initial configuration, then follow the walkthrough to publish a certificate and perform the first pull. [First deployment walkthrough (Japanese)](docs/quickstart.md)
+Use `certpouch configure client` and `certpouch configure server` to create the initial configuration, then follow the walkthrough to publish a certificate and perform the first pull. [First deployment walkthrough (Japanese)](docs/quickstart.md)
 
 To distribute certificates using an existing DNS inventory cache or CSV, start with one YAML file on the server and one on each receiving host. Each YAML file references the TLS, CA, and token files it needs.
 
@@ -42,11 +42,17 @@ Operator configuration is limited to `server.yaml` and `client.yaml`. The server
 | Command | Purpose |
 | --- | --- |
 | `certpouch configure dns` | Generate DNS and Sheets-fetch configuration interactively or from flags |
-| `certpouch init server` / `certpouch init client` | Generate the initial distribution configuration |
+| `certpouch configure server` / `certpouch configure client` | Generate the initial distribution configuration |
+| `certpouch pipeline --watch` | Synchronize Sheets, NSD, and certificates periodically |
 | `certpouch server` | Start the HTTPS distribution server |
 | `certpouch pull` | Fetch and deploy certificate updates |
 | `certpouch pull --dry-run` | Preview pending updates |
 | `certpouch status` | Inspect local certificates and deployment status |
+
+Manual operations and diagnostics
+
+| Command | Purpose |
+| --- | --- |
 | `certpouch cert publish` | Register an existing certificate as a new distribution generation |
 | `certpouch dns sync --dry-run` | Preview NSD zone files from the DNS inventory snapshot |
 | `certpouch dns fetch` | Refresh the inventory snapshot from Google Sheets |
@@ -55,7 +61,7 @@ Operator configuration is limited to `server.yaml` and `client.yaml`. The server
 | `certpouch cert renew` | Issue or renew configured certificates using an existing private CA |
 | `certpouch cert status` | Check the expiry and local state of published certificates |
 
-Most commands use `--config PATH`. DNS activation uses an explicit candidate and managed directory. Renewal also requires a separate issuer configuration. [DNS zone generation and activation](docs/dns-sync.md) · [Publishing certificates](docs/server-publication.md) · [Certificate renewal](docs/certificate-renewal.md)
+The automated workflow uses a single `server.yaml`. [DNS zone generation and activation](docs/dns-sync.md) · [Publishing certificates](docs/server-publication.md) · [Certificate renewal](docs/certificate-renewal.md)
 
 ## Documentation and license
 

@@ -1,6 +1,6 @@
 # Linuxでの証明書配置
 
-このページのコマンドは手動設定例の `/etc/certpouch/client.yaml` を使う。`init client` で生成したYAMLを使う場合は、Pull、status、systemdユニットの `--config` を生成先に揃える。[初回導入](quickstart.md)
+このページのコマンドは手動設定例の `/etc/certpouch/client.yaml` を使う。`configure client` で生成したYAMLを使う場合は、Pull、status、systemdユニットの `--config` を生成先に揃える。[初回導入](quickstart.md)
 
 [クライアント設定例](../configs/client.example.yaml)をもとに、配布サーバーのTLS用CA、証明書の発行CA、クライアントトークン、配置先、systemdのユニットと操作を設定する。配置先は信頼できる管理者が事前に作成し、実行ユーザーに書き込みを許可する。サービスには配置先と `versions` の通過権限を与える。秘密鍵は既定で0600。サービス専用グループで共有する場合は `group` と `private_key_mode: "0640"` を指定する。
 

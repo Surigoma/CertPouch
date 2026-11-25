@@ -26,6 +26,10 @@ func (values *repeatedFlag) Set(value string) error {
 }
 
 func runConfigure(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		fmt.Fprintln(stderr, "Usage: certpouch configure dns|server|client --help")
+		return 0
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "Usage: certpouch configure dns --help\n       certpouch configure server|client --help")
 		return 2

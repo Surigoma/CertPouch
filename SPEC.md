@@ -37,8 +37,8 @@ See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 | --- | --- |
 | `install.sh` / `uninstall.sh` | On Linux, installs or removes the binary while preserving configuration, credentials, certificates, state, and systemd units. |
 | `certpouch configure dns` | Creates validated DNS and optional Sheets-fetch configuration from flags or interactive prompts without overwriting existing files. |
-| `certpouch init client` | Generates and validates a client YAML, random token, SHA-256 token hash, and deployment directory under a new output directory on Linux. |
-| `certpouch init server` | Generates and validates a server YAML and publication store from the client hash, TLS files, and existing DNS inventory. |
+| `certpouch configure client` | Generates and validates a client YAML, random token, SHA-256 token hash, and deployment directory under a new output directory on Linux. |
+| `certpouch configure server` | Generates and validates a server YAML and publication store from the client hash, TLS files, and existing DNS inventory. |
 | `certpouch server --config PATH` | Loads validated publications and serves the HTTPS API. `--check-config` validates without opening the listener. |
 | `certpouch pull --config PATH` | Compares authorized inventory with local state, downloads updates, validates them, and deploys them. `--dry-run` previews without fetching private keys or making changes. |
 | `certpouch status --config PATH` | Reports local deployment and synchronization state, without contacting the server. |

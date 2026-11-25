@@ -54,7 +54,7 @@ flowchart LR
 | コマンド | 動作 |
 | --- | --- |
 | `configure dns` | フラグまたは対話入力からDNS設定と任意のSheets取得設定を新規ディレクトリへ生成 |
-| `init server` / `init client` | サーバー・クライアントの初期設定を新規ディレクトリに生成 |
+| `configure server` / `configure client` | サーバー・クライアントの初期設定を新規ディレクトリに生成 |
 | `server --config PATH` | 設定・保存領域を検証してHTTPS配布を開始 |
 | `server --check-config --config PATH` | 待ち受けせずに設定・TLS鍵ペア・公開ストアを確認 |
 | `pull --config PATH` | 認証、差分取得、検証、配置、reload、失敗時復旧 |

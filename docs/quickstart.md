@@ -24,7 +24,7 @@ Linux上で、CAファイル、サーバーのHTTPS証明書と秘密鍵、台�
 取得ホストで、トークンとクライアント設定を作成します。
 
 ```sh
-sudo certpouch init client --out /etc/certpouch/client-init \
+sudo certpouch configure client --out /etc/certpouch/client-init \
   --id web-server-01 --name web.example.internal \
   --url https://cert-server.example.internal:8443 \
   --server-ca /etc/ssl/certpouch/server-ca.crt \
@@ -35,7 +35,7 @@ sudo certpouch init client --out /etc/certpouch/client-init \
 生成された `client.token.sha256` だけを配布サーバーの管理者へ安全に渡します。配布サーバーで、受け取ったハッシュと台帳を指定して設定を作成します。
 
 ```sh
-sudo certpouch init server --out /etc/certpouch/server-init \
+sudo certpouch configure server --out /etc/certpouch/server-init \
   --id web-server-01 --name web.example.internal \
   --listen 192.0.2.20:8443 \
   --tls-cert /etc/certpouch/server.crt --tls-key /etc/certpouch/server.key \

@@ -68,4 +68,4 @@ certpouch configure server --help
 certpouch configure client --help
 ```
 
-これらは `init server`、`init client` と同じ検証・生成処理を使う。トークンを画面へ表示せず、新規ディレクトリだけに設定と資格情報を生成する。
+トークンを画面へ表示せず、新規ディレクトリだけに設定と資格情報を生成する。

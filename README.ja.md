@@ -42,11 +42,17 @@ Linuxリリースには、運用データを保持したままバイナリを配
 | コマンド | 用途 |
 | --- | --- |
 | `certpouch configure dns` | CUIまたはフラグでDNS・Sheets取得設定を生成 |
-| `certpouch init server` / `certpouch init client` | サーバー・取得ホストの初期設定を作成 |
+| `certpouch configure server` / `certpouch configure client` | サーバー・取得ホストの初期設定を作成 |
+| `certpouch pipeline --watch` | Sheets・NSD・証明書を定期同期 |
 | `certpouch server` | HTTPS配布サーバーを起動 |
 | `certpouch pull` | 証明書の更新を取得して配置 |
 | `certpouch pull --dry-run` | 更新予定を確認 |
 | `certpouch status` | ローカルの証明書と配置状況を確認 |
+
+個別に実行する場合の操作と診断コマンドです。
+
+| コマンド | 用途 |
+| --- | --- |
 | `certpouch cert publish` | 発行済みの証明書を新しい配布世代として登録 |
 | `certpouch dns sync --dry-run` | DNS台帳から生成するNSD向けゾーンを確認 |
 | `certpouch dns fetch` | Google SheetsからDNS台帳を取得してキャッシュを更新 |
@@ -55,7 +61,7 @@ Linuxリリースには、運用データを保持したままバイナリを配
 | `certpouch cert renew` | 既存のプライベートCAで対象証明書を発行・更新 |
 | `certpouch cert status` | 公開ストア上の証明書の期限と状態を確認 |
 
-DNS適用では候補と管理ディレクトリを指定します。証明書更新ではサーバー設定と別の発行者設定を指定します。[DNSゾーン生成と適用](docs/dns-sync.md)・[証明書の登録手順](docs/server-publication.md)・[証明書の更新手順](docs/certificate-renewal.md)
+自動運用は `server.yaml` 一枚で設定します。[DNSゾーン生成と適用](docs/dns-sync.md)・[証明書の登録手順](docs/server-publication.md)・[証明書の更新手順](docs/certificate-renewal.md)
 
 ## 仕様とライセンス
 
