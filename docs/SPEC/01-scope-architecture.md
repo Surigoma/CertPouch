@@ -65,9 +65,10 @@ flowchart LR
 | `dns fetch --config PATH` | Sheetsから台帳を取得・検証し、キャッシュを更新 |
 | `dns fetch --status --config PATH` | キャッシュと最終成功時刻をオフラインで確認 |
 | `dns sync --config PATH` | 在庫からゾーンを生成し、プレビューまたは検証済み候補を出力 |
+| `pipeline --config PATH` | Sheets取得から検証済みDNS候補生成までを実行。明示した `--apply PATH` で候補をNSDへ反映 |
 | `dns diff --candidate PATH` | `--zone-dir` の現行または `--baseline` の候補と比較 |
 | `dns apply --candidate PATH --zone-dir PATH` | 検証済み候補をNSDに適用し、配信されたserialを確認 |
-| `cert renew --config PATH --renewal-config PATH` | 更新対象の発行・検証・公開 |
+| `cert renew --config PATH` | `server.yaml` の更新設定を使った対象証明書の発行・検証・公開 |
 
 ### 実行時の動作
 

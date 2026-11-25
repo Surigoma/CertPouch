@@ -204,7 +204,7 @@ func writeDNSConfiguration(dir string, input dnsConfigInput) (path string, err e
 		}
 		return "[" + strings.Join(quoted, ", ") + "]"
 	}
-	dnsBody := fmt.Sprintf(`dns_inventory:
+	dnsBody := fmt.Sprintf(`inventory:
   cache_file: %q
   fallback_prefix: %q
   zone: %q
@@ -220,7 +220,15 @@ zones:
   negative_ttl: 300
 `, input.Cache, input.Prefix, input.Zone, input.Primary, input.Mailbox,
 		quotedList(input.Nameservers), input.TTL, input.Serial)
-	path = filepath.Join(dir, "dns.yaml")
+	if input.Spreadsheet != "" {
+		dnsBody += fmt.Sprintf(`sheets:
+  spreadsheet_id: %q
+  ranges: %s
+  service_account_file: %q
+`, input.Spreadsheet, quotedList(input.Ranges), input.ServiceAccount)
+	}
+	dnsBody = "pipeline:\n  dns:\n    " + strings.ReplaceAll(strings.TrimSuffix(dnsBody, "\n"), "\n", "\n    ") + "\n"
+	path = filepath.Join(dir, "server.yaml")
 	if err := os.WriteFile(path, []byte(dnsBody), 0600); err != nil {
 		return "", err
 	}
@@ -228,20 +236,7 @@ zones:
 		return "", fmt.Errorf("validate generated DNS config: %w", err)
 	}
 	if input.Spreadsheet != "" {
-		fetchBody := fmt.Sprintf(`dns_inventory:
-  cache_file: %q
-  fallback_prefix: %q
-  zone: %q
-google_sheets:
-  spreadsheet_id: %q
-  ranges: %s
-  service_account_file: %q
-`, input.Cache, input.Prefix, input.Zone, input.Spreadsheet, quotedList(input.Ranges), input.ServiceAccount)
-		fetchPath := filepath.Join(dir, "fetch.yaml")
-		if err := os.WriteFile(fetchPath, []byte(fetchBody), 0600); err != nil {
-			return "", err
-		}
-		if _, err := config.LoadSheetsFetch(fetchPath); err != nil {
+		if _, err := config.LoadSheetsFetch(path); err != nil {
 			return "", fmt.Errorf("validate generated Sheets config: %w", err)
 		}
 	}

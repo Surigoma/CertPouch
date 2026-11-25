@@ -20,26 +20,23 @@ type SheetsFetch struct {
 	Credentials    sheets.Credentials
 }
 
-type sheetsFetchDocument struct {
-	Inventory inventoryDocument `yaml:"dns_inventory"`
-	Sheets    struct {
-		SpreadsheetID      string   `yaml:"spreadsheet_id"`
-		Ranges             []string `yaml:"ranges"`
-		ServiceAccountFile string   `yaml:"service_account_file"`
-	} `yaml:"google_sheets"`
+type googleSheetsDocument struct {
+	SpreadsheetID      string   `yaml:"spreadsheet_id"`
+	Ranges             []string `yaml:"ranges"`
+	ServiceAccountFile string   `yaml:"service_account_file"`
 }
 
-func loadSheetsFetchDocument(path string) (sheetsFetchDocument, error) {
+func loadSheetsFetchDocument(path string) (serverDocument, error) {
 	raw, err := readFile(path, false, 1<<20)
 	if err != nil {
-		return sheetsFetchDocument{}, fmt.Errorf("read Sheets fetch configuration: %w", err)
+		return serverDocument{}, fmt.Errorf("read server configuration: %w", err)
 	}
-	var doc sheetsFetchDocument
-	if err := decodeYAML(raw, &doc); err != nil {
-		return sheetsFetchDocument{}, err
+	doc, err := decodeServer(raw)
+	if err != nil {
+		return serverDocument{}, err
 	}
-	if !filepath.IsAbs(doc.Inventory.CacheFile) || len(doc.Inventory.CSVFiles) != 0 {
-		return sheetsFetchDocument{}, fmt.Errorf("Sheets fetch requires an absolute cache_file and does not accept csv_files")
+	if doc.DNSInventory == nil || !filepath.IsAbs(doc.DNSInventory.CacheFile) || len(doc.DNSInventory.CSVFiles) != 0 {
+		return serverDocument{}, fmt.Errorf("Sheets fetch requires an absolute cache_file and does not accept csv_files")
 	}
 	return doc, nil
 }
@@ -65,7 +62,7 @@ func LoadSheetsFetch(path string) (SheetsFetch, error) {
 		return SheetsFetch{}, err
 	}
 	return SheetsFetch{
-		CacheFile: doc.Inventory.CacheFile, FallbackPrefix: doc.Inventory.FallbackPrefix, Zone: doc.Inventory.Zone,
+		CacheFile: doc.DNSInventory.CacheFile, FallbackPrefix: doc.DNSInventory.FallbackPrefix, Zone: doc.DNSInventory.Zone,
 		SpreadsheetID: doc.Sheets.SpreadsheetID, Ranges: doc.Sheets.Ranges, Credentials: credentials,
 	}, nil
 }
@@ -82,19 +79,19 @@ func ReadSheetsCacheStatus(path string, now time.Time) (SheetsCacheStatus, error
 	if err != nil {
 		return SheetsCacheStatus{}, err
 	}
-	age, err := doc.Inventory.freshnessMaxAge()
+	age, err := doc.DNSInventory.freshnessMaxAge()
 	if err != nil {
 		return SheetsCacheStatus{}, err
 	}
-	status := SheetsCacheStatus{State: "invalid", MaxAge: doc.Inventory.MaxAge}
-	raw, err := readFile(doc.Inventory.CacheFile, false, sheets.MaxSnapshotBytes)
+	status := SheetsCacheStatus{State: "invalid", MaxAge: doc.DNSInventory.MaxAge}
+	raw, err := readFile(doc.DNSInventory.CacheFile, false, sheets.MaxSnapshotBytes)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			status.State = "missing"
 		}
 		return status, nil
 	}
-	freshness, err := verifyInventoryCache(doc.Inventory.CacheFile, raw, now, age)
+	freshness, err := verifyInventoryCache(doc.DNSInventory.CacheFile, raw, now, age)
 	switch {
 	case errors.Is(err, dns.ErrStaleCache):
 		status.State, status.FetchedAt = "stale", &freshness.FetchedAt

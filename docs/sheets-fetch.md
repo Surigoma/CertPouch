@@ -4,18 +4,18 @@
 
 ## 設定
 
-[設定例](../configs/sheets-fetch.example.yaml)をコピーし、スプレッドシートID、シートごとの範囲、サービスアカウントのJSONファイル、出力先を設定する。対象スプレッドシートはサービスアカウントに閲覧権限だけを付ける。JSONファイルを0600で取得用ユーザーだけが読めるようにする。取得コマンドは読み取り専用のOAuthスコープを使い、サービスアカウントのJSONや応答本文はエラーに表示しない。[サービスアカウントの認証方式](https://developers.google.com/identity/protocols/oauth2/service-account)
+[サーバー設定例](../configs/server.example.yaml)の `dns_inventory` と `google_sheets` に、スプレッドシートID、シートごとの範囲、サービスアカウントのJSONファイル、出力先を設定する。対象スプレッドシートはサービスアカウントに閲覧権限だけを付ける。JSONファイルを0600で取得用ユーザーだけが読めるようにする。取得コマンドは読み取り専用のOAuthスコープを使い、サービスアカウントのJSONや応答本文はエラーに表示しない。[サービスアカウントの認証方式](https://developers.google.com/identity/protocols/oauth2/service-account)
 
 範囲は `'Example inventory'!A2:G256` のように、対象のシート名と見出し行を除いたセル範囲を指定する。[DNS台帳の記入例](dns-inventory.md#台帳の記入例)
 
 ```sh
-certpouch dns fetch --config /etc/certpouch-sheets/fetch.yaml
+certpouch dns fetch --config /etc/certpouch/server.yaml
 ```
 
 対象のシートID、指定したすべての範囲と順番、列数、台帳の内容を確認してからLinux上でキャッシュを置き換える。取得障害、範囲の欠落、不正な台帳、すべての名前が空のスナップショットを受け取った場合は、以前のキャッシュと最終成功時刻を維持する。キャッシュは検証したAPI応答をJSONに整形して保存する。同じ内容なら台帳本体を変えず、最終成功時刻とキャッシュのSHA-256を `cache.json.freshness.json` に記録する。出力は更新の有無と名前の件数だけを表示する。
 
 ```sh
-certpouch dns fetch --status --config /etc/certpouch-sheets/fetch.yaml
+certpouch dns fetch --status --config /etc/certpouch/server.yaml
 ```
 
 `--status` はGoogleへ接続せず、サービスアカウントも読まず、最終成功時刻とキャッシュの状態をJSONで返す。`dns_inventory.max_age: "45m"` のように設定すると期限も確認できる。状態は `verified`、`stale`、`untracked`、`missing`、`invalid` のいずれかで、検証済みの `verified` を終了コード0、他の状態を1、設定エラーを2とする。

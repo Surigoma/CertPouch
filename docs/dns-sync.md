@@ -1,10 +1,23 @@
 # NSD向けゾーン生成
 
-`certpouch dns sync` はGoogle Sheetsキャッシュまたはシートを個別にエクスポートしたCSVから候補ゾーンを生成する。キャッシュの更新には [`dns fetch`](sheets-fetch.md) を使える。[DNS設定例](../configs/dns.example.yaml)で、台帳のパス、正引きゾーン名、SOA、ネームサーバー、TTLとserialを指定する。CSVの場合は `dns_inventory.cache_file` を `csv_files: ["/path/to/export.csv"]` に置き換える。複数ファイルでは、シートごとに初期プレフィックスをリセットする。
+## Sheetsからの運用手順
 
 ```sh
-certpouch dns sync --config /etc/certpouch/dns.yaml --dry-run
-certpouch dns sync --config /etc/certpouch/dns.yaml --stage-dir /var/lib/certpouch/dns-staging
+certpouch pipeline --config /etc/certpouch/server.yaml
+certpouch dns diff --zone-dir /var/lib/certpouch/nsd-zones --candidate /absolute/path/to/candidate
+certpouch pipeline --config /etc/certpouch/server.yaml --apply /absolute/path/to/candidate
+certpouch cert renew --config /etc/certpouch/server.yaml
+```
+
+最初のコマンドはSheetsを読み取り、検証済み候補のパスを出力する。差分を確認し、そのパスを明示して反映する。パイプライン経由の反映は既存レコードの削除・置換がある場合に停止する。意図した削除・置換は個別の `dns apply` で上限を指定する。証明書発行・公開は反映成功後に個別実行する。
+
+初回は既存NSDへの適用手順に従って管理スナップショットを初期化する。初回候補には `pipeline.dns.zones.serial` を設定して個別の `dns sync` を使う。初期化後は固定serialを外し、`pipeline.dns.deployment.zone_dir` の現行世代からserialを進める。
+
+`certpouch dns sync` はGoogle Sheetsキャッシュまたはシートを個別にエクスポートしたCSVから候補ゾーンを生成する。キャッシュの更新には [`dns fetch`](sheets-fetch.md) を使える。[サーバー設定例](../configs/server.example.yaml)で、台帳のパス、正引きゾーン名、SOA、ネームサーバー、TTLとserialを指定する。CSVの場合は `dns_inventory.cache_file` を `csv_files: ["/path/to/export.csv"]` に置き換える。複数ファイルでは、シートごとに初期プレフィックスをリセットする。
+
+```sh
+certpouch dns sync --config /etc/certpouch/server.yaml --dry-run
+certpouch dns sync --config /etc/certpouch/server.yaml --stage-dir /var/lib/certpouch/dns-staging
 ```
 
 `--dry-run` はゾーン候補を標準出力に表示する。`--stage-dir` は事前に作成した絶対パスを指定する。新しい候補ディレクトリに個別のゾーンファイルを書き出し、すべての `nsd-checkzone` が成功した場合にディレクトリの場所を表示する。生成コマンドは稼働中のゾーンの置換やNSDの再読み込みを行わない。
@@ -16,7 +29,7 @@ serialは現在の稼働ゾーンを確認したうえで設定する。`zones.p
 初回適用後は、設定から `zones.serial` と `zones.previous_serials` を省略し、`--serial-from` で管理ディレクトリを指定できる。`current` の各ゾーンが持つSOA serialを1進めて候補を生成する。候補と管理中のゾーンの組み合わせが違う場合は生成を拒否する。適用時にはNSDが返すSOAとも照合し、レコードに変更がないゾーンは現在のserialを維持する。
 
 ```sh
-certpouch dns sync --config /etc/certpouch/dns.yaml \
+certpouch dns sync --config /etc/certpouch/server.yaml \
   --serial-from /var/lib/certpouch/nsd-zones \
   --stage-dir /var/lib/certpouch/dns-staging
 ```

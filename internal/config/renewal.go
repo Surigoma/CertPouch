@@ -35,9 +35,15 @@ func LoadRenewal(path string) (Renewal, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("read renewal configuration: %w", err)
 	}
-	if err := decodeYAML(raw, &cfg); err != nil {
+	if doc, unifiedErr := decodeServer(raw); unifiedErr == nil && len(doc.Renewal.Profiles) != 0 {
+		cfg = doc.Renewal
+	} else if err := decodeYAML(raw, &cfg); err != nil {
 		return cfg, err
 	}
+	return validateRenewal(cfg)
+}
+
+func validateRenewal(cfg Renewal) (Renewal, error) {
 	if !filepath.IsAbs(cfg.CertificateFile) || !filepath.IsAbs(cfg.KeyFile) ||
 		(cfg.ChainFile != "" && !filepath.IsAbs(cfg.ChainFile)) ||
 		(cfg.PassphraseFile != "" && !filepath.IsAbs(cfg.PassphraseFile)) || len(cfg.Profiles) == 0 {

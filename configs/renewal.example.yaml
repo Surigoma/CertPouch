@@ -1,9 +1,0 @@
-issuer_certificate: "/etc/certpouch-issuer/intermediate.crt"
-issuer_private_key: "/etc/certpouch-issuer/intermediate.key"
-issuer_chain: "/etc/certpouch-issuer/intermediates.pem"
-# For an encrypted key, set a private passphrase file and keep the key encrypted at rest.
-# issuer_passphrase_file: "/etc/certpouch-issuer/intermediate.passphrase"
-profiles:
-  - name: "web.example.internal"
-    validity: "2160h"
-    renew_before: "720h"

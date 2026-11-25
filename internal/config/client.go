@@ -49,6 +49,7 @@ type pullDocument struct {
 	} `yaml:"client"`
 	Validation struct {
 		TrustCAFile string `yaml:"trust_ca_file"`
+		IssuerFile  string `yaml:"issuer_certificate"`
 	} `yaml:"validation"`
 	Certificates []pullCertificate `yaml:"certificates"`
 }
@@ -140,7 +141,7 @@ func loadClient(path string, network bool) (Client, error) {
 				return Client{}, fmt.Errorf("certificate destinations must not overlap")
 			}
 		}
-		policy, err := (certificateDocument{DNS: target.DNS, IPs: target.IPs, IssuerFile: target.IssuerFile}).policy(roots)
+		policy, err := (certificateDocument{Name: target.Name, DNS: target.DNS, IPs: target.IPs, IssuerFile: target.IssuerFile}).policy(roots, doc.Validation.IssuerFile)
 		if err != nil {
 			return Client{}, fmt.Errorf("certificates[%d]: %w", i, err)
 		}

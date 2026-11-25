@@ -2,7 +2,7 @@
 
 既存CAで発行済みの証明書を、既存のDNS台帳を使ってLinuxホスト1台へ配布する手順です。配布サーバーと取得ホストは別マシンとし、サーバーには `server.yaml`、取得ホストには `client.yaml` を置きます。以下のドメイン、IP、サービス名、ファイルパスは例です。
 
-DNS管理ホストの `dns.yaml` とSheets取得用 `fetch.yaml` は、[設定コマンド](configure.md)を使ってCUIまたはフラグから生成できる。
+サーバー側では配布、Sheets取得、DNS生成、証明書更新を `server.yaml` にまとめ、取得ホスト側は `client.yaml` を使う。[設定コマンド](configure.md)
 
 ## 1. 用意するもの
 
@@ -162,9 +162,9 @@ statusの対象証明書が `installed` になり、`last_successful_sync` が�
 | 取得ホストで配置状態を確認する | `sudo certpouch status --config /etc/certpouch/client-init/client.yaml` |
 | 配布サーバーで起動前に設定を検証する | `sudo -u certpouch certpouch server --check-config --config /etc/certpouch/server-init/server.yaml` |
 | 配布サーバーで公開証明書の期限を見る | `sudo -u certpouch certpouch cert status --config /etc/certpouch/server-init/server.yaml` |
-| DNS管理ホストでゾーンをプレビューする | `certpouch dns sync --dry-run --config /etc/certpouch/dns.yaml` |
+| DNS管理ホストでゾーンをプレビューする | `certpouch dns sync --dry-run --config /etc/certpouch/server.yaml` |
 
-証明書の登録には手順3の `cert publish` を使います。NSDへの適用は、[DNS設定例](../configs/dns.example.yaml)をもとに候補を生成し、[検証・差分確認・適用の手順](dns-sync.md)へ進みます。
+証明書の登録には手順3の `cert publish` を使います。NSDへの適用は、[サーバー設定例](../configs/server.example.yaml)をもとに候補を生成し、[検証・差分確認・適用の手順](dns-sync.md)へ進みます。
 
 ## 通らなかったとき
 

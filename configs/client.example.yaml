@@ -9,12 +9,11 @@ client:
   # tls_private_key: "/etc/certpouch/client.key"
 validation:
   trust_ca_file: "/etc/ssl/certpouch/issuers.pem"
+  issuer_certificate: "/etc/ssl/certpouch/intermediate.crt"
 certificates:
   - name: "web.example.internal"
     destination: "/etc/certpouch/certificates/web.example.internal"
-    expected_dns_sans: ["web.example.internal"]
-    expected_ip_sans: []
-    issuer_certificate: "/etc/ssl/certpouch/intermediate.crt"
+    # DNS SANは既定でname。追加名・IPや別Issuerが必要な場合だけ個別に設定する。
     service:
       unit: "nginx.service"
       action: "reload"

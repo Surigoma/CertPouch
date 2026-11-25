@@ -28,7 +28,7 @@ func TestConfigureDNSInline(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("configure exit %d: %s", code, &stderr)
 	}
-	path := filepath.Join(out, "dns.yaml")
+	path := filepath.Join(out, "server.yaml")
 	if strings.TrimSpace(stdout.String()) != path {
 		t.Fatalf("unexpected output %q", &stdout)
 	}
@@ -63,7 +63,7 @@ func TestConfigureDNSInteractive(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("interactive configure exit %d: %s", code, &stderr)
 	}
-	if err := config.ValidateDNSConfig(filepath.Join(out, "dns.yaml")); err != nil {
+	if err := config.ValidateDNSConfig(filepath.Join(out, "server.yaml")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -101,8 +101,13 @@ func TestConfigureDNSWithSheets(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("configure with Sheets exit %d: %s", code, &stderr)
 	}
-	if _, err := config.LoadSheetsFetch(filepath.Join(out, "fetch.yaml")); err != nil {
+	path := filepath.Join(out, "server.yaml")
+	if _, err := config.LoadSheetsFetch(path); err != nil {
 		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(out)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "server.yaml" {
+		t.Fatalf("generated files = %v, %v; want only server.yaml", entries, err)
 	}
 }
 

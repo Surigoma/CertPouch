@@ -28,7 +28,7 @@ To distribute certificates using an existing DNS inventory cache or CSV, start w
 - The server uses `server.yaml` for both `server` and `cert publish`. [Server example](configs/server.example.yaml)
 - Each receiving host uses `client.yaml` for both `pull` and `status`. [Client example](configs/client.example.yaml)
 
-Add YAML files as you enable features. Use `sheets-fetch.yaml` for direct Google Sheets refresh, `dns.yaml` for NSD zone generation, `renewal.yaml` for automated CA issuance and renewal, and `revocations.yaml` for reloading client revocations at runtime. [Sheets refresh](docs/sheets-fetch.md) · [DNS generation](docs/dns-sync.md) · [Certificate renewal](docs/certificate-renewal.md) · [Client revocation](docs/client-revocation.md)
+Operator configuration is limited to `server.yaml` and `client.yaml`. The server file can contain distribution, Google Sheets, DNS generation, and CA renewal sections. Credentials, certificates, and the optional runtime revocation list remain separate protected data files. [Sheets refresh](docs/sheets-fetch.md) · [DNS generation](docs/dns-sync.md) · [Certificate renewal](docs/certificate-renewal.md) · [Client revocation](docs/client-revocation.md)
 
 ## What you can do
 

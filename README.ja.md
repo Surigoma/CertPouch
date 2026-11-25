@@ -28,7 +28,7 @@ Linuxリリースには、運用データを保持したままバイナリを配
 - サーバーでは `server.yaml` を `server` と `cert publish` で共用します。[サーバー設定例](configs/server.example.yaml)
 - 取得ホストでは `client.yaml` を `pull` と `status` で共用します。[クライアント設定例](configs/client.example.yaml)
 
-追加のYAMLは機能を使うときに用意します。Sheetsからの直接取得には `sheets-fetch.yaml`、NSDゾーン生成には `dns.yaml`、CAによる自動発行・更新には `renewal.yaml`、再起動なしのクライアント失効には `revocations.yaml` を使います。[Sheets取得](docs/sheets-fetch.md)・[DNS生成](docs/dns-sync.md)・[CA更新](docs/certificate-renewal.md)・[クライアント失効](docs/client-revocation.md)
+管理する設定YAMLは `server.yaml` と `client.yaml` の2枚です。サーバー側の配布、Sheets取得、DNS生成、CA更新は `server.yaml` にまとめます。資格情報、証明書、任意の実行時失効リストは保護対象データとして別ファイルに保ちます。[Sheets取得](docs/sheets-fetch.md)・[DNS生成](docs/dns-sync.md)・[CA更新](docs/certificate-renewal.md)・[クライアント失効](docs/client-revocation.md)
 
 ## 利用できる機能
 

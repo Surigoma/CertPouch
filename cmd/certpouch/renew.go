@@ -20,7 +20,7 @@ func runRenew(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	flags := flag.NewFlagSet("cert renew", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	serverPath := flags.String("config", "", "path to server YAML configuration")
-	renewalPath := flags.String("renewal-config", "", "path to separate issuer and renewal YAML configuration")
+	renewalPath := flags.String("renewal-config", "", "legacy path to a separate renewal configuration")
 	preview := flags.Bool("dry-run", false, "show due certificates without opening the issuer key")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -28,13 +28,16 @@ func runRenew(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		}
 		return 2
 	}
-	if *serverPath == "" || *renewalPath == "" || flags.NArg() != 0 {
+	if *serverPath == "" || flags.NArg() != 0 {
 		flags.Usage()
 		return 2
 	}
 	if !*preview && runtime.GOOS != "linux" {
 		fmt.Fprintln(stderr, "certificate renewal requires Linux")
 		return 1
+	}
+	if *renewalPath == "" {
+		*renewalPath = *serverPath
 	}
 	server, err := config.LoadServer(*serverPath)
 	if err != nil {

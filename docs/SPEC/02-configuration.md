@@ -1,5 +1,13 @@
 # 設定仕様
 
+直接発行者が共通なら、`server.yaml` の `storage.issuer_certificate` と `client.yaml` の `validation.issuer_certificate` にそれぞれ一度だけ絶対パスを書く。証明書ごとの `issuer_certificate` があれば優先する。信頼チェーンの検証には引き続き `trust_ca_file` を使う。
+
+`expected_dns_sans` と `expected_ip_sans` を両方省略すると、ドットを含む有効なDNSホスト名の `name` を唯一の期待DNS SANにする。別名やIP SANが必要な場合は期待するSAN集合を明記する。個別指定と既定値は合成しない。
+
+標準のサーバー設定では `pipeline.dns.inventory`、`pipeline.dns.sheets`、`pipeline.dns.zones`、`pipeline.dns.deployment` に台帳からNSD反映までの設定をまとめる。発行条件は `pipeline.certificates.renewal`、配布ポリシーは `certificates` と `clients` に置く。階層化した設定と旧トップレベルのパイプライン設定は混在できない。
+
+運用者が管理する設定YAMLはサーバー側の `server.yaml` と取得・配置側の `client.yaml` の2枚とする。`server.yaml` は配布サーバー、DNS台帳、Google Sheets取得、ゾーン生成、証明書更新の節をまとめる。資格情報、証明書、秘密鍵、失効リストは設定値から参照する保護対象データであり、設定YAMLには埋め込まない。
+
 ## 要件
 
 YAMLを使用し、厳密に検証する。配布はHTTPSのみとし、適切なCAバンドルでTLSを検証する。資格情報を含む設定は0600、秘密鍵は0600を既定とする。例には文書用ドメイン・IPだけを使用する。
@@ -58,15 +66,15 @@ clients:
 
 ### DNS台帳モード
 
-`dns_inventory` を設定すると、サーバーは起動時にSheet取得結果のJSONキャッシュまたはCSVを読み取る。どちらか一方を指定する。
+`pipeline.dns.inventory` を設定すると、サーバーは起動時にSheets取得結果のJSONキャッシュまたはCSVを読み取る。どちらか一方を指定する。
 
 | 項目 | 役割 |
 | --- | --- |
-| `dns_inventory.cache_file` | Sheetsの取得結果を保存したファイルの絶対パス |
-| `dns_inventory.csv_files` | キャッシュの代わりに使う、シートごとのCSVエクスポートの絶対パス一覧 |
-| `dns_inventory.max_age` | 任意。`dns fetch` の最終成功時刻から使える期間。キャッシュ用の設定で、配布サーバーでは `server.inventory_refresh` が必要 |
-| `dns_inventory.fallback_prefix` | 各範囲でB列が指定されるまで使うIPv4プレフィックス |
-| `dns_inventory.zone` | 台帳上の相対名を完全修飾名にするためのゾーン名 |
+| `pipeline.dns.inventory.cache_file` | Sheetsの取得結果を保存したファイルの絶対パス |
+| `pipeline.dns.inventory.csv_files` | キャッシュの代わりに使う、シートごとのCSVエクスポートの絶対パス一覧 |
+| `pipeline.dns.inventory.max_age` | 任意。`dns fetch` の最終成功時刻から使える期間。キャッシュ用の設定で、配布サーバーでは `server.inventory_refresh` が必要 |
+| `pipeline.dns.inventory.fallback_prefix` | 各範囲でB列が指定されるまで使うIPv4プレフィックス |
+| `pipeline.dns.inventory.zone` | 台帳上の相対名を完全修飾名にするためのゾーン名 |
 | `clients[].certificate_access_overrides` | 任意。公開対象の証明書名をキー、追加で取得を許可する台帳ホスト名の配列を値とする |
 
 DNS台帳モードではクライアント設定の `allowed_ips` と `allowed_certificates` を省く。証明書の論理名と同名の台帳レコードを基本の取得元とし、例外設定のホストを証明書・クライアント単位で追加する。`certificates` のサーバー側定義で公開対象と検証方針を指定する。未登録証明書や台帳にない例外ホストは設定エラーになる。[実際の設定例と運用](../dns-inventory.md)

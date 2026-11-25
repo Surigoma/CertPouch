@@ -26,9 +26,11 @@ See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 | `certpouch pull --config PATH` | Compares authorized inventory with local state, downloads updates, validates them, and deploys them. `--dry-run` previews without fetching private keys or making changes. |
 | `certpouch status --config PATH` | Reports local deployment and synchronization state, without contacting the server. |
 | `certpouch cert publish --config PATH` | Registers a validated leaf certificate, private key and optional intermediate chain. |
-| `certpouch cert renew --config PATH --renewal-config PATH` | Issues missing certificates or renews certificates within the configured threshold. Supports `--dry-run`. |
+| `certpouch cert renew --config PATH` | Issues missing certificates or renews certificates using the renewal section in `server.yaml`. Supports `--dry-run`. |
 | `certpouch cert status --config PATH` | Checks local published leaf certificates and expiry. |
 | `certpouch dns fetch --config PATH` | Fetches and validates a Sheets cache. `--status` reads the local cache state. |
+| `certpouch pipeline --config PATH` | Refreshes the Sheets cache and prints the path to a validated DNS candidate. |
+| `certpouch pipeline --config PATH --apply CANDIDATE` | Applies the selected candidate to initialized NSD deployment, rejecting record removals and replacements. |
 | `certpouch dns sync --config PATH` | Renders a preview with `--dry-run` or creates an NSD-validated candidate with `--stage-dir`. |
 | `certpouch dns diff --candidate PATH` | Compares a candidate with a managed `--zone-dir` or a staged `--baseline`. |
 | `certpouch dns apply --candidate PATH --zone-dir PATH` | Initializes the managed snapshot with `--initialize`, or updates NSD and verifies the served SOA serials. |
@@ -38,6 +40,8 @@ Use subcommand `--help` for the full flag list. Configuration paths are explicit
 Release archives include Linux-only installation and removal scripts. They install only the executable and their management metadata; operational data and systemd configuration are intentionally preserved. See [Linux installation](docs/linux-installation.md).
 
 ## Configuration and authorization
+
+Use `server.yaml` for the server workflow and `client.yaml` on each receiving host. In `server.yaml`, `pipeline.dns` groups the inventory, Sheets source, zone settings, and NSD deployment. `pipeline.certificates.renewal` configures issuance and renewal. After reviewing and applying the DNS candidate, run `cert renew` separately to publish due certificates. See the [configuration guide](docs/configure.md).
 
 The YAML loaders reject unknown and duplicate keys. A first distribution setup uses one [server YAML](configs/server.example.yaml) and one [client YAML](configs/client.example.yaml) per receiving host. Optional DNS generation, Sheets fetching, CA renewal, and runtime revocation use their own configuration files.
 

@@ -7,7 +7,7 @@
 ## 実装済み
 
 - Linuxリリースに、バイナリだけを安全に配置・削除する `install.sh` と `uninstall.sh` を追加した。設定、資格情報、証明書、状態、systemd unitは保持し、管理外ファイルの上書きと変更済みバイナリの削除を既定で拒否する。[Linuxへのインストールと削除](linux-installation.md)
-- `configure dns` はフラグまたは `--interactive` のCUIから、検証済みの `dns.yaml` と任意の `fetch.yaml` を新規ディレクトリへ生成する。`configure server|client` は既存の `init` と同じ処理を使う。[設定コマンド](configure.md)
+- サーバー側の配布、Sheets取得、DNS生成、証明書更新は `server.yaml`、取得・配置は `client.yaml` に集約する。`configure dns` はSheets取得とゾーン生成の節を持つ `server.yaml` を生成する。[設定コマンド](configure.md)
 - Go 1.26.11以降を使用する。配布APIのルーティングと共通処理にはGin v1.12.0を使用する。
 - `pki.Validate` は証明書・チェーン・秘密鍵を受け取り、呼び出し元が設定した信頼CA、発行者、期待SAN、検証時刻に基づいて検証する。正常時はリーフとDERのSHA-256フィンガープリントを返す。
 - テストCAを使い、正常な中間CAチェーンと、鍵不一致、SAN不一致、誤った発行者、未知CA、中間CA欠落、EKU欠落、余分なPEMデータ、期限切れの拒否を確認済み。

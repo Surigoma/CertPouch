@@ -57,8 +57,23 @@ type serverDocument struct {
 	Storage struct {
 		CertificateDir string `yaml:"certificate_dir"`
 		TrustCAFile    string `yaml:"trust_ca_file"`
+		IssuerFile     string `yaml:"issuer_certificate"`
 	} `yaml:"storage"`
-	DNSInventory *inventoryDocument    `yaml:"dns_inventory"`
+	DNSInventory *inventoryDocument   `yaml:"dns_inventory"`
+	Sheets       googleSheetsDocument `yaml:"google_sheets"`
+	Zones        dnsZoneDocument      `yaml:"zones"`
+	Renewal      Renewal              `yaml:"renewal"`
+	Pipeline     *struct {
+		DNS struct {
+			Deployment DNSDeployment        `yaml:"deployment"`
+			Inventory  *inventoryDocument   `yaml:"inventory"`
+			Sheets     googleSheetsDocument `yaml:"sheets"`
+			Zones      dnsZoneDocument      `yaml:"zones"`
+		} `yaml:"dns"`
+		Certificates struct {
+			Renewal Renewal `yaml:"renewal"`
+		} `yaml:"certificates"`
+	} `yaml:"pipeline"`
 	Certificates []certificateDocument `yaml:"certificates"`
 	Clients      []clientDocument      `yaml:"clients"`
 }
@@ -185,7 +200,7 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		if _, exists := result.Policies[cert.Name]; cert.Name == "" || exists {
 			return Server{}, fmt.Errorf("missing or duplicate certificates[%d].name", i)
 		}
-		policy, err := cert.policy(roots)
+		policy, err := cert.policy(roots, doc.Storage.IssuerFile)
 		if err != nil {
 			return Server{}, fmt.Errorf("certificates[%d]: %w", i, err)
 		}
@@ -257,8 +272,23 @@ func parseCertificateHashes(values []string) ([][sha256.Size]byte, error) {
 
 func decodeServer(body []byte) (serverDocument, error) {
 	var doc serverDocument
-	err := decodeYAML(body, &doc)
-	return doc, err
+	if err := decodeYAML(body, &doc); err != nil {
+		return doc, err
+	}
+	if p := doc.Pipeline; p != nil {
+		var legacy map[string]any
+		if err := decodeYAML(body, &legacy); err != nil {
+			return doc, err
+		}
+		for _, key := range []string{"dns_inventory", "google_sheets", "zones", "renewal"} {
+			if _, exists := legacy[key]; exists {
+				return doc, fmt.Errorf("pipeline cannot be combined with top-level %s", key)
+			}
+		}
+		doc.DNSInventory, doc.Sheets, doc.Zones = p.DNS.Inventory, p.DNS.Sheets, p.DNS.Zones
+		doc.Renewal = p.Certificates.Renewal
+	}
+	return doc, nil
 }
 
 func decodeYAML(body []byte, target any) error {
@@ -274,7 +304,13 @@ func decodeYAML(body []byte, target any) error {
 	return nil
 }
 
-func (c certificateDocument) policy(roots *x509.CertPool) (pki.Policy, error) {
+func (c certificateDocument) policy(roots *x509.CertPool, defaultIssuer string) (pki.Policy, error) {
+	if c.IssuerFile == "" {
+		c.IssuerFile = defaultIssuer
+	}
+	if c.DNS == nil && c.IPs == nil && isCertificateHostname(c.Name) {
+		c.DNS = []string{c.Name}
+	}
 	if !filepath.IsAbs(c.IssuerFile) || len(c.DNS)+len(c.IPs) == 0 {
 		return pki.Policy{}, fmt.Errorf("issuer path and expected SANs are required")
 	}
@@ -304,6 +340,23 @@ func (c certificateDocument) policy(roots *x509.CertPool) (pki.Policy, error) {
 		policy.IPs = append(policy.IPs, addr.Unmap())
 	}
 	return policy, nil
+}
+
+func isCertificateHostname(name string) bool {
+	if len(name) > 253 || !strings.Contains(name, ".") || net.ParseIP(name) != nil {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, ch := range strings.ToLower(label) {
+			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.Inventory) (distribution.Client, error) {

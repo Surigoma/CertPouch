@@ -3,7 +3,7 @@ Description=Renew CertPouch certificates using the private CA
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/certpouch cert renew --config /etc/certpouch/server.yaml --renewal-config /etc/certpouch-issuer/renewal.yaml
+ExecStart=/usr/local/bin/certpouch cert renew --config /etc/certpouch/server.yaml
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
