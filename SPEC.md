@@ -2,7 +2,22 @@
 
 CertPouch is a single Go binary for self-hosted private DNS, private PKI, and HTTPS pull-based certificate distribution. It uses an existing private CA and runs certificate and DNS activation on Linux. The license is MIT.
 
-This document describes the current implementation. [Detailed specifications](docs/SPEC/README.md) define the interfaces and operating behavior. [First deployment](docs/quickstart.md) walks through deploying a single certificate.
+The target scope below defines the intended workflow. Subsequent sections and the [detailed specifications](docs/SPEC/README.md) describe the current implementation. [First deployment](docs/quickstart.md) walks through deploying a single certificate.
+
+## Target scope
+
+An operator registers a hostname, IP address, and optional aliases in Google Sheets. That is the routine input for both DNS and certificate issuance. Adding a host requires no per-host YAML changes or issuance flag.
+
+1. Poll Sheets at a configurable interval, targeting reflection within a few minutes in normal operation. Account for API quotas and back off on quota errors and transient failures. A future webhook may trigger the same synchronization sooner.
+2. Generate DNS records and update NSD. Confirm DNS activation before reconciling certificate issuance, renewal, and availability against the accepted inventory.
+3. Use an existing CA and a shared issuance policy. Issue a separate certificate and private key for each hostname and each alias. Authorized receiving servers pull the names they need over HTTPS. Local placement can optionally trigger a configured service action or command.
+4. After DNS removal is confirmed, stop new retrieval and automatic renewal for the removed name. Previously deployed certificates may remain in service until expiry. Immediate revocation, such as for a compromised key, is a separate operation.
+
+Inventory membership identifies issuance targets. Retrieval still requires client authentication, source IP authorization, and permission for the requested name.
+
+### Current implementation gap
+
+The current CLI supports Sheets fetch, DNS candidate generation and explicit NSD activation, configured issuance and renewal, and authenticated pull. It still requires configured certificate targets and renewal profiles. The automatic inventory-to-issuance workflow, including stopping retrieval and renewal after confirmed DNS removal, remains target behavior. The current operational examples describe the separate commands.
 
 ## Components and data flow
 

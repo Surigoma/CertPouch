@@ -1,8 +1,8 @@
 # CertPouch 詳細仕様書
 
-[全体仕様](../../SPEC.md)に対応する、現行実装の設定・プロトコル・運用上の動作を記載する。最初に試す場合は[証明書を1台に配布する手順](../quickstart.md)を参照する。
+[全体仕様](../../SPEC.md)に対応する詳細仕様。目標とする自動運用は[台帳からDNS・証明書を同期する目標仕様](08-inventory-workflow.md)にまとめる。以下の「現行実装」は現在利用できる設定・API・運用上の契約を記載する。最初に試す場合は[証明書を1台に配布する手順](../quickstart.md)を参照する。
 
-## 詳細仕様
+## 現行実装
 
 | 文書 | 内容 |
 | --- | --- |
@@ -20,6 +20,7 @@
 | --- | --- |
 | 初回設定、証明書の登録と配布 | [初回導入](../quickstart.md)・[サーバー](../server-publication.md)・[クライアント](../client-deployment.md) |
 | CLIで初期設定を生成 | [設定コマンド](../configure.md) |
+| 利用シーン別のコマンドと設定例 | [操作例](../user-flows.md) |
 | Linuxへのバイナリ配置と削除 | [インストールと削除](../linux-installation.md) |
 | 接続元の制限とクライアント管理 | [DNS台帳による認可](../dns-inventory.md)・[mTLS](../mtls.md)・[失効リスト](../client-revocation.md) |
 | 台帳取得とNSD管理 | [Sheetsからの取得](../sheets-fetch.md)・[NSDへの適用](../dns-sync.md) |
