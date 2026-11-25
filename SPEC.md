@@ -9,15 +9,17 @@ The target scope below defines the intended workflow. Subsequent sections and th
 An operator registers a hostname, IP address, and optional aliases in Google Sheets. That is the routine input for both DNS and certificate issuance. Adding a host requires no per-host YAML changes or issuance flag.
 
 1. Poll Sheets at a configurable interval, targeting reflection within a few minutes in normal operation. Account for API quotas and back off on quota errors and transient failures. A future webhook may trigger the same synchronization sooner.
-2. Generate DNS records and update NSD. Confirm DNS activation before reconciling certificate issuance, renewal, and availability against the accepted inventory.
+2. Prepare managed NSD zones at startup from the configured IP ranges. Apply range changes by restarting CertPouch. During regular synchronization, update records within the prepared zones and confirm DNS activation before reconciling certificate issuance, renewal, and availability.
 3. Use an existing CA and a shared issuance policy. Issue a separate certificate and private key for each hostname and each alias. Authorized receiving servers pull the names they need over HTTPS. Local placement can optionally trigger a configured service action or command.
 4. After DNS removal is confirmed, stop new retrieval and automatic renewal for the removed name. Previously deployed certificates may remain in service until expiry. Immediate revocation, such as for a compromised key, is a separate operation.
 
-Inventory membership identifies issuance targets. Retrieval still requires client authentication, source IP authorization, and permission for the requested name.
+If certificate issuance fails after successful DNS activation, keep the active DNS records and retry issuance for the affected name on the next scheduled synchronization, even if DNS records are unchanged.
+
+Inventory membership identifies issuance targets. Retrieval always requires client authentication. Configure per-client retrieval restrictions using the inventory source IP match, a certificate name allowlist, both, or explicitly neither. Source IP matching is the default. Valid inventory changes are not blocked by a removal or replacement count threshold. See the [target workflow specification](docs/SPEC/08-inventory-workflow.md).
 
 ### Current implementation gap
 
-The current CLI supports Sheets fetch, DNS candidate generation and explicit NSD activation, configured issuance and renewal, and authenticated pull. It still requires configured certificate targets and renewal profiles. The automatic inventory-to-issuance workflow, including stopping retrieval and renewal after confirmed DNS removal, remains target behavior. The current operational examples describe the separate commands.
+The current CLI supports periodic synchronization with `pipeline --watch` and optional startup registration through a dedicated NSD include. The [workflow configuration example](configs/workflow-server.example.yaml) uses the task-oriented layout. The inventory cache is updated after DNS confirmation, and distribution reflects changes on its configured refresh intervals.
 
 ## Components and data flow
 
@@ -45,7 +47,7 @@ See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 | `certpouch cert status --config PATH` | Checks local published leaf certificates and expiry. |
 | `certpouch dns fetch --config PATH` | Fetches and validates a Sheets cache. `--status` reads the local cache state. |
 | `certpouch pipeline --config PATH` | Refreshes the Sheets cache and prints the path to a validated DNS candidate. |
-| `certpouch pipeline --config PATH --apply CANDIDATE` | Applies the selected candidate to initialized NSD deployment, rejecting record removals and replacements. |
+| `certpouch pipeline --config PATH --apply CANDIDATE` | Applies the selected candidate to initialized NSD deployment. |
 | `certpouch dns sync --config PATH` | Renders a preview with `--dry-run` or creates an NSD-validated candidate with `--stage-dir`. |
 | `certpouch dns diff --candidate PATH` | Compares a candidate with a managed `--zone-dir` or a staged `--baseline`. |
 | `certpouch dns apply --candidate PATH --zone-dir PATH` | Initializes the managed snapshot with `--initialize`, or updates NSD and verifies the served SOA serials. |

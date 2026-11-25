@@ -14,6 +14,9 @@ import (
 )
 
 type Renewal struct {
+	FromInventory   bool             `yaml:"from_inventory"`
+	Validity        string           `yaml:"validity"`
+	RenewBefore     string           `yaml:"renew_before"`
 	CertificateFile string           `yaml:"issuer_certificate"`
 	KeyFile         string           `yaml:"issuer_private_key"`
 	ChainFile       string           `yaml:"issuer_chain"`
@@ -35,8 +38,20 @@ func LoadRenewal(path string) (Renewal, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("read renewal configuration: %w", err)
 	}
-	if doc, unifiedErr := decodeServer(raw); unifiedErr == nil && len(doc.Renewal.Profiles) != 0 {
+	if doc, unifiedErr := decodeServer(raw); unifiedErr == nil && (len(doc.Renewal.Profiles) != 0 || doc.Renewal.FromInventory) {
 		cfg = doc.Renewal
+		if cfg.FromInventory {
+			if doc.DNSInventory == nil || len(cfg.Profiles) != 0 {
+				return cfg, fmt.Errorf("inventory renewal requires an inventory and no explicit profiles")
+			}
+			inventory, err := doc.DNSInventory.load()
+			if err != nil {
+				return cfg, err
+			}
+			for _, name := range inventory.Names() {
+				cfg.Profiles = append(cfg.Profiles, RenewalProfile{Name: name, ValidityText: cfg.Validity, RenewBeforeText: cfg.RenewBefore})
+			}
+		}
 	} else if err := decodeYAML(raw, &cfg); err != nil {
 		return cfg, err
 	}
@@ -46,8 +61,15 @@ func LoadRenewal(path string) (Renewal, error) {
 func validateRenewal(cfg Renewal) (Renewal, error) {
 	if !filepath.IsAbs(cfg.CertificateFile) || !filepath.IsAbs(cfg.KeyFile) ||
 		(cfg.ChainFile != "" && !filepath.IsAbs(cfg.ChainFile)) ||
-		(cfg.PassphraseFile != "" && !filepath.IsAbs(cfg.PassphraseFile)) || len(cfg.Profiles) == 0 {
+		(cfg.PassphraseFile != "" && !filepath.IsAbs(cfg.PassphraseFile)) || (len(cfg.Profiles) == 0 && !cfg.FromInventory) {
 		return cfg, fmt.Errorf("renewal requires absolute issuer paths and at least one certificate profile")
+	}
+	if cfg.FromInventory && len(cfg.Profiles) == 0 {
+		validity, validityErr := time.ParseDuration(cfg.Validity)
+		before, beforeErr := time.ParseDuration(cfg.RenewBefore)
+		if validityErr != nil || beforeErr != nil || validity%time.Second != 0 || before <= 0 || before >= validity {
+			return cfg, fmt.Errorf("invalid inventory renewal validity or renewal threshold")
+		}
 	}
 	seen := make(map[string]bool, len(cfg.Profiles))
 	for i := range cfg.Profiles {

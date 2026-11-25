@@ -27,6 +27,7 @@ import (
 )
 
 type Server struct {
+	InventoryCertificates  bool
 	Listen                 string
 	TLSCertificate         string
 	TLSPrivateKey          string
@@ -42,7 +43,8 @@ type Server struct {
 }
 
 type serverDocument struct {
-	Server struct {
+	Deployment *DNSDeployment `yaml:"-"`
+	Server     struct {
 		Listen             string `yaml:"listen"`
 		PublicationRefresh string `yaml:"publication_refresh"`
 		InventoryRefresh   string `yaml:"inventory_refresh"`
@@ -92,6 +94,7 @@ type clientDocument struct {
 	AllowedCertificates     []string            `yaml:"allowed_certificates"`
 	TokenHashFile           string              `yaml:"token_hash_file"`
 	Overrides               map[string][]string `yaml:"certificate_access_overrides"`
+	InventoryAccess         string              `yaml:"inventory_access"`
 	ClientCertificateSHA256 []string            `yaml:"client_certificate_sha256"`
 }
 
@@ -215,6 +218,20 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		}
 		inventory = &parsed
 	}
+	if doc.Renewal.FromInventory {
+		if inventory == nil || len(doc.Certificates) != 0 || len(doc.Renewal.Profiles) != 0 ||
+			result.InventoryRefresh == 0 || result.PublicationRefresh == 0 {
+			return Server{}, fmt.Errorf("inventory issuance requires inventory and both refresh intervals, without explicit certificate targets or profiles")
+		}
+		issuer, err := (certificateDocument{Name: "issuer.example.invalid", IssuerFile: doc.Renewal.CertificateFile}).policy(roots, "")
+		if err != nil {
+			return Server{}, err
+		}
+		for _, name := range inventory.Names() {
+			result.Policies[name] = pki.Policy{Roots: roots, Issuer: issuer.Issuer, DNS: []string{name}}
+		}
+		result.InventoryCertificates = true
+	}
 	clientCertOwners := make(map[[sha256.Size]byte]string)
 	for i, entry := range doc.Clients {
 		client, err := entry.client(result.Policies, inventory)
@@ -272,6 +289,15 @@ func parseCertificateHashes(values []string) ([][sha256.Size]byte, error) {
 
 func decodeServer(body []byte) (serverDocument, error) {
 	var doc serverDocument
+	var keys map[string]any
+	if err := decodeYAML(body, &keys); err != nil {
+		return doc, err
+	}
+	for _, key := range []string{"inventory", "dns", "distribution"} {
+		if _, exists := keys[key]; exists {
+			return decodeWorkflowServer(body)
+		}
+	}
 	if err := decodeYAML(body, &doc); err != nil {
 		return doc, err
 	}
@@ -287,6 +313,7 @@ func decodeServer(body []byte) (serverDocument, error) {
 		}
 		doc.DNSInventory, doc.Sheets, doc.Zones = p.DNS.Inventory, p.DNS.Sheets, p.DNS.Zones
 		doc.Renewal = p.Certificates.Renewal
+		doc.Deployment = &p.DNS.Deployment
 	}
 	return doc, nil
 }
@@ -362,16 +389,17 @@ func isCertificateHostname(name string) bool {
 func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.Inventory) (distribution.Client, error) {
 	client := distribution.Client{ID: c.ID, Enabled: c.Enabled, AllowedCertificates: c.AllowedCertificates}
 	if inventory != nil {
-		if len(c.AllowedIPs) != 0 || len(c.AllowedCertificates) != 0 {
-			return client, fmt.Errorf("DNS inventory mode derives access; use certificate_access_overrides for exceptions")
+		if len(c.AllowedIPs) != 0 {
+			return client, fmt.Errorf("allowed_ips is incompatible with DNS inventory mode")
 		}
 		rules, err := c.inventoryRules(policies, *inventory)
 		if err != nil {
 			return client, err
 		}
 		client.CertificateIPs = rules
-	} else if len(c.Overrides) != 0 {
-		return client, fmt.Errorf("certificate_access_overrides requires dns_inventory")
+		client.AllowedCertificates = nil
+	} else if len(c.Overrides) != 0 || c.InventoryAccess != "" {
+		return client, fmt.Errorf("inventory access configuration requires dns_inventory")
 	}
 	for _, value := range c.AllowedIPs {
 		prefix, err := netip.ParsePrefix(value)
@@ -386,7 +414,7 @@ func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.In
 		client.AllowedIPs = append(client.AllowedIPs, prefix.Masked())
 	}
 	for _, name := range c.AllowedCertificates {
-		if _, ok := policies[name]; !ok {
+		if _, ok := policies[name]; !ok && inventory == nil {
 			return client, fmt.Errorf("certificate assignment references an unconfigured certificate")
 		}
 	}
@@ -407,13 +435,46 @@ func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.In
 }
 
 func (c clientDocument) inventoryRules(policies map[string]pki.Policy, inventory dns.Inventory) (map[string][]netip.Prefix, error) {
+	mode := c.InventoryAccess
+	if mode == "" {
+		mode = "ip"
+	}
+	switch mode {
+	case "ip", "names", "ip_and_names", "all":
+	default:
+		return nil, fmt.Errorf("invalid inventory_access mode")
+	}
+	restrictNames := mode == "names" || mode == "ip_and_names"
+	if restrictNames != (len(c.AllowedCertificates) != 0) {
+		return nil, fmt.Errorf("allowed_certificates is required only for names and ip_and_names modes")
+	}
+	if len(c.Overrides) != 0 && mode != "ip" && mode != "ip_and_names" {
+		return nil, fmt.Errorf("certificate_access_overrides requires IP matching")
+	}
+	allowed := make(map[string]bool, len(c.AllowedCertificates))
+	for _, name := range c.AllowedCertificates {
+		if allowed[name] || !isCertificateHostname(name) {
+			return nil, fmt.Errorf("invalid or duplicate inventory certificate assignment")
+		}
+		allowed[name] = true
+	}
 	rules := make(map[string][]netip.Prefix, len(policies))
 	for name := range policies {
-		rules[name] = inventory.PrefixesForName(name)
+		if restrictNames && !allowed[name] {
+			continue
+		}
+		prefixes := inventory.PrefixesForName(name)
+		if len(prefixes) != 0 && (mode == "all" || mode == "names") {
+			prefixes = []netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0), netip.PrefixFrom(netip.IPv6Unspecified(), 0)}
+		}
+		rules[name] = prefixes
 	}
 	for name, hosts := range c.Overrides {
 		if _, exists := policies[name]; !exists {
 			return nil, fmt.Errorf("certificate access override references an unconfigured certificate")
+		}
+		if restrictNames && !allowed[name] {
+			return nil, fmt.Errorf("certificate access override is outside allowed_certificates")
 		}
 		prefixes, err := inventory.AllowedPrefixes(hosts)
 		if err != nil {

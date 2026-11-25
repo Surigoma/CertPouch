@@ -2,6 +2,14 @@
 
 ## Sheetsからの運用手順
 
+初期登録済みのNSD環境では、`certpouch pipeline --watch --config /etc/certpouch/server.yaml` で取得・反映・発行を定期実行できる。`pipeline.dns.deployment.poll_interval` の既定値は `3m`。失敗時は待ち時間を延ばす。NSDでSOAを確認してから台帳キャッシュを更新し、その後に証明書更新を実行する。発行が失敗した場合も配信中のDNSは維持される。
+
+起動時のゾーン準備には[新形式の設定例](../configs/workflow-server.example.yaml)を使う。NSDの設定に `include: "/etc/nsd/certpouch-zones.conf"` を追加し、先頭行が `# Managed by CertPouch` の専用ファイルを作る。管理対象ゾーンの定義はこのファイルに集約する。既にNSDで運用中のゾーンを移す場合は、現行のSOAとレコードを確認してから管理世代を初期登録する。
+
+`dns.zones.reverse_zones` に使用するIPv4 /24逆引きゾーンを列挙する。レンジを変える場合はこのリストを変更して同期プロセスを再起動する。起動時に専用ファイルと管理世代を切り替え、`nsd-checkconf`、`nsd-control reconfig`、SOA照合を実行する。切り戻しにも失敗した場合は管理ディレクトリの `.dns-apply-lock/startup-recovery` を確認する。
+
+常駐させる場合は [pipeline用systemd unit](../configs/systemd/certpouch-pipeline.service)を使える。専用の取得タイマーと更新タイマーを同じ設定に対して併用しない。同期プロセスと配布サーバーを別ユーザーで動かす場合は、同期ユーザー所有かつ配布グループ読み取り可能な0640のキャッシュを事前に用意する。初回同期成功後に配布サーバーを起動する。配布サーバーのユーザーにはTLS鍵・トークンハッシュ・公開ストアを読める権限を付け、署名CA秘密鍵への権限は同期ユーザーに限る。
+
 ```sh
 certpouch pipeline --config /etc/certpouch/server.yaml
 certpouch dns diff --zone-dir /var/lib/certpouch/nsd-zones --candidate /absolute/path/to/candidate
@@ -9,7 +17,9 @@ certpouch pipeline --config /etc/certpouch/server.yaml --apply /absolute/path/to
 certpouch cert renew --config /etc/certpouch/server.yaml
 ```
 
-最初のコマンドはSheetsを読み取り、検証済み候補のパスを出力する。差分を確認し、そのパスを明示して反映する。パイプライン経由の反映は既存レコードの削除・置換がある場合に停止する。意図した削除・置換は個別の `dns apply` で上限を指定する。証明書発行・公開は反映成功後に個別実行する。
+最初のコマンドはSheetsを読み取り、検証済み候補のパスを出力する。差分を確認し、そのパスを明示して反映する。証明書発行・公開は反映成功後に個別実行する。
+
+`pipeline.dns.zones.reverse_zones` に管理するIPv4逆引きゾーン名を指定すると、PTRが0件になってもそのゾーンを候補に残す。例は `reverse_zones: ["2.0.192.in-addr.arpa"]`。指定外のIPv4逆引きゾーンが必要な台帳は候補生成に失敗する。NSDへのゾーン登録は初回適用手順に従う。
 
 初回は既存NSDへの適用手順に従って管理スナップショットを初期化する。初回候補には `pipeline.dns.zones.serial` を設定して個別の `dns sync` を使う。初期化後は固定serialを外し、`pipeline.dns.deployment.zone_dir` の現行世代からserialを進める。
 

@@ -122,11 +122,25 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	defer stopRefresh()
 	if cfg.PublicationRefresh != 0 {
 		go handler.Watch(refreshContext, cfg.PublicationRefresh, func() ([]distribution.Publication, error) {
+			if cfg.InventoryCertificates {
+				current, err := config.LoadServer(*path)
+				if err != nil {
+					return nil, err
+				}
+				return storage.Load(current.CertificateDir, current.Policies)
+			}
 			return storage.Load(cfg.CertificateDir, cfg.Policies)
 		})
 	}
 	if cfg.InventoryRefresh != 0 {
-		go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, cfg.ReloadInventoryClients)
+		loadClients := cfg.ReloadInventoryClients
+		if cfg.InventoryCertificates {
+			loadClients = func() ([]distribution.Client, error) {
+				current, err := config.LoadServer(*path)
+				return current.Clients, err
+			}
+		}
+		go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, loadClients)
 	}
 	if revocations != nil {
 		go handler.WatchRevocations(refreshContext, cfg.RevocationRefresh, func() (distribution.Revocations, error) {

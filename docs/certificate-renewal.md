@@ -1,5 +1,9 @@
 # 既存のプライベートCAによる証明書更新
 
+台帳の全名前を発行対象にするには、`pipeline.certificates.renewal` に `from_inventory: true`、`validity: "720h"`、`renew_before: "168h"` と既存CAへのパスを指定する。個別の `profiles` とトップレベルの `certificates` は省略し、`server.inventory_refresh` と `server.publication_refresh` を設定する。台帳上の各名前に独立した証明書を発行する。削除済みの名前は更新対象から外れ、配布側の定期読み直しで取得対象から外れる。
+
+この運用では、台帳キャッシュへの書き込みはNSD反映を確認する `pipeline --watch` に統一する。台帳だけを更新する `dns fetch` や独立した取得タイマーを同じキャッシュに向けると、DNS反映前に配布側が新しい台帳を読めるため、併用しない。
+
 `cert renew` は、既存CAで未発行の証明書を発行し、期限が近い証明書を更新する。検証済みの新世代は配布ストアに登録する。対象は[サーバー設定例](../configs/server.example.yaml)の `renewal.profiles` で明示する。対象名、SAN、期待する発行者、信頼するルートは同じ設定の `certificates` と `storage.trust_ca_file` を使う。
 
 ```sh

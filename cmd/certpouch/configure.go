@@ -207,27 +207,27 @@ func writeDNSConfiguration(dir string, input dnsConfigInput) (path string, err e
 	dnsBody := fmt.Sprintf(`inventory:
   cache_file: %q
   fallback_prefix: %q
-  zone: %q
-zones:
-  primary: %q
-  mailbox: %q
-  nameservers: %s
-  ttl: %d
-  serial: %d
-  refresh: 3600
-  retry: 600
-  expire: 604800
-  negative_ttl: 300
-`, input.Cache, input.Prefix, input.Zone, input.Primary, input.Mailbox,
-		quotedList(input.Nameservers), input.TTL, input.Serial)
+`, input.Cache, input.Prefix)
 	if input.Spreadsheet != "" {
-		dnsBody += fmt.Sprintf(`sheets:
-  spreadsheet_id: %q
-  ranges: %s
-  service_account_file: %q
+		dnsBody += fmt.Sprintf(`  sheets:
+    spreadsheet_id: %q
+    ranges: %s
+    credentials_file: %q
 `, input.Spreadsheet, quotedList(input.Ranges), input.ServiceAccount)
 	}
-	dnsBody = "pipeline:\n  dns:\n    " + strings.ReplaceAll(strings.TrimSuffix(dnsBody, "\n"), "\n", "\n    ") + "\n"
+	dnsBody += fmt.Sprintf(`dns:
+  zone: %q
+  zones:
+    primary: %q
+    mailbox: %q
+    nameservers: %s
+    ttl: %d
+    serial: %d
+    refresh: 3600
+    retry: 600
+    expire: 604800
+    negative_ttl: 300
+`, input.Zone, input.Primary, input.Mailbox, quotedList(input.Nameservers), input.TTL, input.Serial)
 	path = filepath.Join(dir, "server.yaml")
 	if err := os.WriteFile(path, []byte(dnsBody), 0600); err != nil {
 		return "", err

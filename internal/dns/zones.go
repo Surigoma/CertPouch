@@ -19,6 +19,9 @@ type ZoneOptions struct {
 	PreviousSerials                                  map[string]uint32
 	AdvanceSerial                                    bool
 	StaticRecords                                    []StaticRecord
+	ReverseZones                                     []string
+	AllowZoneSetChange                               bool
+	AllowEmptyInventory                              bool
 }
 
 type Zone struct {
@@ -69,10 +72,23 @@ func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(inventory.addresses) == 0 {
+	if len(inventory.addresses) == 0 && !options.AllowEmptyInventory {
 		return nil, fmt.Errorf("refusing to generate zones from an empty inventory")
 	}
 	sets := map[string][]zoneRecord{forward: nil}
+	for _, name := range options.ReverseZones {
+		name = strings.TrimSuffix(name, ".")
+		prefix, ok := strings.CutSuffix(name, ".in-addr.arpa")
+		parts := strings.Split(prefix, ".")
+		if !ok || len(parts) != 3 {
+			return nil, fmt.Errorf("invalid IPv4 reverse zone %q", name)
+		}
+		addr, err := netip.ParseAddr(parts[2] + "." + parts[1] + "." + parts[0] + ".0")
+		if err != nil || !addr.Is4() {
+			return nil, fmt.Errorf("invalid IPv4 reverse zone %q", name)
+		}
+		sets[name] = nil
+	}
 	for name, addresses := range inventory.addresses {
 		if name != forward && !strings.HasSuffix(name, "."+forward) {
 			return nil, fmt.Errorf("inventory owner %s is outside the forward zone", name)
@@ -82,6 +98,9 @@ func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
 			if addr.Is4() {
 				kind = "A"
 				reverse, ptrOwner := reverseOwner(addr)
+				if _, managed := sets[reverse]; !managed && options.ReverseZones != nil {
+					return nil, fmt.Errorf("reverse zone %s is outside the configured zone set", reverse)
+				}
 				sets[reverse] = append(sets[reverse], zoneRecord{ptrOwner, "PTR", name + "."})
 			}
 			sets[forward] = append(sets[forward], zoneRecord{name + ".", kind, addr.String()})
@@ -96,6 +115,9 @@ func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
 	previous := make(map[string]uint32, len(options.PreviousSerials))
 	for raw, serial := range options.PreviousSerials {
 		name, ok := hostname(raw)
+		if _, generated := sets[name]; ok && !generated && options.AllowZoneSetChange {
+			continue
+		}
 		if _, generated := sets[name]; !ok || !generated {
 			return nil, fmt.Errorf("previous serial refers to a zone not generated: %q", raw)
 		}
@@ -109,10 +131,12 @@ func RenderZones(inventory Inventory, options ZoneOptions) ([]Zone, error) {
 		serial := options.Serial
 		before, hasPrevious := previous[name]
 		if options.AdvanceSerial {
-			if !hasPrevious {
+			if !hasPrevious && !options.AllowZoneSetChange {
 				return nil, fmt.Errorf("previous SOA serial required for zone %s", name)
 			}
-			serial = before + 1
+			if hasPrevious {
+				serial = before + 1
+			}
 		} else if hasPrevious && !newerSerial(serial, before) {
 			return nil, fmt.Errorf("SOA serial %d is not newer than %d for zone %s", serial, before, name)
 		}

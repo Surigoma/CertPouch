@@ -2,18 +2,20 @@
 
 初回接続から日常のDNS更新、証明書の発行・配置までを試す場合は、[利用シーン別の操作例](user-flows.md)を参照してください。
 
+自動運用では[新形式のサーバー設定例](../configs/workflow-server.example.yaml)を `server.yaml` として使います。`inventory` はSheets取得、`dns` は管理ゾーンとNSD、`certificates` は共通の発行方針、`distribution` はHTTPS配布と取得制限です。クライアント側は従来どおり [client.yaml の例](../configs/client.example.yaml)を使います。
+
 `certpouch configure` は設定を新規ディレクトリへ生成する。既存ディレクトリやファイルは上書きしない。生成したYAMLは厳密デコーダーと各機能の検証処理を通し、失敗時は作成途中のディレクトリを削除する。
 
 ## DNSとSheetsの設定
 
-最初は `server.yaml` の `pipeline.dns` だけで候補を確認できます。[全体の設定例](../configs/server.example.yaml)から、使う段階に合わせて節を追加してください。
+最初は `server.yaml` の `inventory` と `dns` だけで候補を確認できます。[全体の設定例](../configs/workflow-server.example.yaml)から、使う段階に合わせて節を追加してください。
 
 | 段階 | 編集する節 | 入力する内容 |
 | --- | --- | --- |
-| Sheets取得 | `pipeline.dns.inventory` と `pipeline.dns.sheets` | キャッシュの絶対パス、正引きゾーン名、IPv4の既定プレフィックス、シートID・範囲、閲覧専用サービスアカウントJSONの絶対パス |
-| ゾーン候補の確認 | `pipeline.dns.zones` | 現行NSDのSOA・NS・TTL。初回の候補確認では `serial` も指定 |
-| NSD反映 | `pipeline.dns.deployment` | 候補の保存先、管理世代の保存先、`nsd.conf`、SOA確認用のループバックアドレス |
-| 証明書の発行・配布 | `pipeline.certificates.renewal`、`server`、`storage`、`certificates`、`clients` | 既存CAへのパス、発行プロファイル、HTTPS・保存先・証明書ポリシー・接続元認可 |
+| Sheets取得 | `inventory` と `dns.zone` | キャッシュの絶対パス、正引きゾーン名、IPv4の既定プレフィックス、シートID・範囲、閲覧専用サービスアカウントJSONの絶対パス |
+| ゾーン候補の確認 | `dns.zones` | 現行NSDのSOA・NS・TTL。初回の個別プレビューでは `serial` を指定 |
+| NSD反映 | `dns.nsd` | 候補と管理世代の保存先、`nsd.conf`、専用include、SOA確認用のループバックアドレス |
+| 証明書の発行・配布 | `certificates` と `distribution` | 既存CAへのパス、共通の有効期間と更新時期、保存先、HTTPSとクライアント認可 |
 
 仮設定では、キャッシュの親ディレクトリを作ってから同じ `server.yaml` を両方に渡します。サービスアカウントJSONは取得ユーザーだけが読めるようにします。
 
@@ -22,7 +24,7 @@ certpouch dns fetch --config /etc/certpouch/server.yaml
 certpouch dns sync --config /etc/certpouch/server.yaml --dry-run
 ```
 
-`--dry-run` は正引き・逆引き候補を表示します。NSDの初期登録とその後の反映は[ゾーン生成・適用手順](dns-sync.md)に沿って行います。管理開始後は固定の `serial` を外し、管理中の世代から引き継ぎます。証明書の `renewal.profiles[].name` はトップレベルの `certificates[].name` と揃えます。
+`--dry-run` は正引き・逆引き候補を表示します。NSDの初期登録とその後の反映は[ゾーン生成・適用手順](dns-sync.md)に沿って行います。自動運用を始めるときは固定の `serial` を外し、管理中の世代から引き継ぎます。
 
 CUIでDNS設定を作成する。
 
@@ -49,7 +51,7 @@ certpouch configure dns \
 `--nameserver` と `--range` は複数回指定できる。`--mailbox` を省略すると `hostmaster.<zone>`、`--nameserver` を省略するとSOA primaryを使う。TTLは300、初回serialは1を既定とし、`--ttl` と `--serial` で変更できる。
 
 生成物はサーバー側の共通設定 `server.yaml` だけである。Sheetsの3項目を指定した場合は同じファイルに
-`pipeline.dns.sheets` も入り、`dns fetch` と `dns sync` の両方へ同じパスを渡す。
+`inventory.sheets` も入り、初期確認用の `dns fetch` と `dns sync` の両方へ同じパスを渡す。
 取得元、キャッシュ、ゾーン生成条件が一つの設定で管理されるため、重複更新は不要になる。
 
 

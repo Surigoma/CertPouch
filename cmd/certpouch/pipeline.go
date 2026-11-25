@@ -15,13 +15,14 @@ func runPipeline(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to server.yaml")
 	candidate := flags.String("apply", "", "explicit candidate directory to apply to NSD")
+	watch := flags.Bool("watch", false, "periodically fetch, apply, and renew")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
 		}
 		return 2
 	}
-	if *path == "" || flags.NArg() != 0 {
+	if *path == "" || flags.NArg() != 0 || (*watch && *candidate != "") {
 		flags.Usage()
 		return 2
 	}
@@ -30,9 +31,12 @@ func runPipeline(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	if *watch {
+		return watchPipeline(ctx, *path, deployment, stdout, stderr)
+	}
 	if *candidate != "" {
 		apply := []string{"--candidate", *candidate, "--zone-dir", deployment.ZoneDir,
-			"--nsd-config", deployment.NSDConfig, "--max-removed-records", "0"}
+			"--nsd-config", deployment.NSDConfig}
 		if deployment.DNSAddress != "" {
 			apply = append(apply, "--dns-address", deployment.DNSAddress)
 		}

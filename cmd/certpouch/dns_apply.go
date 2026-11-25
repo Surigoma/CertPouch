@@ -37,24 +37,19 @@ func runDNSApply(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		flags.Usage()
 		return 2
 	}
-	checker, err := exec.LookPath("nsd-checkzone")
+	var endpoint netip.AddrPort
+	if !*initialize {
+		var err error
+		endpoint, err = parseNSDEndpoint(*address)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+	}
+	control, err := newNSDCommands(*conf, endpoint)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
-	}
-	control := nsdCommands{checker: checker, config: *conf}
-	if !*initialize {
-		endpoint, err := netip.ParseAddrPort(*address)
-		if err != nil || endpoint.Port() == 0 || !endpoint.Addr().Unmap().IsLoopback() {
-			fmt.Fprintln(stderr, "--dns-address must be a loopback IP and port")
-			return 2
-		}
-		control.address = endpoint.String()
-		control.controller, err = exec.LookPath("nsd-control")
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 	}
 	options := dns.ActivationOptions{Initialize: *initialize}
 	if *maxRemoved >= 0 {
@@ -74,6 +69,26 @@ func runDNSApply(ctx context.Context, args []string, stdout, stderr io.Writer) i
 
 type nsdCommands struct {
 	checker, controller, config, address string
+}
+
+func parseNSDEndpoint(address string) (netip.AddrPort, error) {
+	endpoint, err := netip.ParseAddrPort(address)
+	if err != nil || endpoint.Port() == 0 || !endpoint.Addr().Unmap().IsLoopback() {
+		return netip.AddrPort{}, fmt.Errorf("--dns-address must be a loopback IP and port")
+	}
+	return endpoint, nil
+}
+
+func newNSDCommands(configPath string, endpoint netip.AddrPort) (nsdCommands, error) {
+	control := nsdCommands{config: configPath}
+	var err error
+	control.checker, err = exec.LookPath("nsd-checkzone")
+	if err != nil || !endpoint.IsValid() {
+		return control, err
+	}
+	control.address = endpoint.String()
+	control.controller, err = exec.LookPath("nsd-control")
+	return control, err
 }
 
 func (c nsdCommands) Check(ctx context.Context, zone, path string) error {

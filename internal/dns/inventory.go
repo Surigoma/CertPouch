@@ -24,6 +24,15 @@ func (inventory Inventory) HostCount() int {
 	return len(inventory.addresses)
 }
 
+func (inventory Inventory) Names() []string {
+	names := make([]string, 0, len(inventory.addresses))
+	for name := range inventory.addresses {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 func NewInventory(records []Record) (Inventory, error) {
 	addresses := make(map[string][]netip.Addr)
 	for i, record := range records {

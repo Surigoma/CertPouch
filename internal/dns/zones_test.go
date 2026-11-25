@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestRenderConfiguredReverseZones(t *testing.T) {
+	inventory, err := NewInventory([]Record{{Name: "app.example.internal", Type: "A", Value: "192.0.2.10"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := ZoneOptions{
+		Forward: "example.internal", Primary: "ns1.example.net", Mailbox: "hostmaster.example.internal",
+		Nameservers: []string{"ns1.example.net"}, TTL: 300, Serial: 1,
+		Refresh: 3600, Retry: 600, Expire: 604800, NegativeTTL: 300,
+		ReverseZones: []string{"2.0.192.in-addr.arpa", "100.51.198.in-addr.arpa"},
+	}
+	zones, err := RenderZones(inventory, options)
+	if err != nil || len(zones) != 3 {
+		t.Fatalf("expected forward and both configured reverse zones: %v, %v", zones, err)
+	}
+	if zones[0].Name != "100.51.198.in-addr.arpa" || bytes.Contains(zones[0].Contents, []byte(" IN PTR ")) {
+		t.Fatal("configured empty reverse zone was not retained")
+	}
+	options.AllowEmptyInventory = true
+	zones, err = RenderZones(Inventory{}, options)
+	if err != nil || len(zones) != 3 {
+		t.Fatalf("last host deletion did not retain all configured zones: %v, %v", zones, err)
+	}
+	options.ReverseZones = options.ReverseZones[1:]
+	if _, err := RenderZones(inventory, options); err == nil {
+		t.Fatal("accepted inventory outside the configured reverse zones")
+	}
+}
+
 func TestRenderZones(t *testing.T) {
 	inventory, err := NewInventory([]Record{
 		{Name: "app.example.internal", Type: "A", Value: "192.0.2.10"},

@@ -49,16 +49,13 @@ func runDNSFetch(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	client := sheets.NewClient()
+	if cfg.ConfirmDNSBeforeCache {
+		fmt.Fprintln(stderr, "inventory issuance requires pipeline --watch to confirm DNS before updating the cache")
+		return 2
+	}
 	hostCount := 0
 	changed, err := dns.RefreshCache(ctx, cfg.CacheFile, sheets.MaxSnapshotBytes, func(ctx context.Context) ([]byte, error) {
-		raw, err := client.Fetch(ctx, cfg.Credentials, cfg.SpreadsheetID, cfg.Ranges)
-		if err != nil {
-			return nil, err
-		}
-		inventory, err := dns.ReadLegacyCache(bytes.NewReader(raw), cfg.FallbackPrefix, cfg.Zone)
+		raw, inventory, err := fetchSheetsInventory(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -81,4 +78,15 @@ func runDNSFetch(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return 1
 	}
 	return 0
+}
+
+func fetchSheetsInventory(ctx context.Context, cfg config.SheetsFetch) ([]byte, dns.Inventory, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	body, err := sheets.NewClient().Fetch(ctx, cfg.Credentials, cfg.SpreadsheetID, cfg.Ranges)
+	if err != nil {
+		return nil, dns.Inventory{}, err
+	}
+	inventory, err := dns.ReadLegacyCache(bytes.NewReader(body), cfg.FallbackPrefix, cfg.Zone)
+	return body, inventory, err
 }

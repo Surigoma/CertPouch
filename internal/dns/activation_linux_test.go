@@ -19,6 +19,50 @@ type testControl struct {
 
 func (*testControl) Check(context.Context, string, string) error { return nil }
 
+func TestPrepareZonesRollsBackMembership(t *testing.T) {
+	root := t.TempDir()
+	control := &testControl{root: root, active: make(map[string]uint32)}
+	candidate := func(names ...string) string {
+		t.Helper()
+		dir := t.TempDir()
+		for _, name := range names {
+			body := "$ORIGIN " + name + ".\n$TTL 300\n@ IN SOA ns.example.net. hostmaster.example.net. ( 1 3600 600 604800 300 )\n"
+			if err := os.WriteFile(filepath.Join(dir, name+".zone"), []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	apply := func(ctx context.Context, names []string) error {
+		clear(control.active)
+		for _, name := range names {
+			if err := control.Reload(ctx, name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	first := candidate("example.internal")
+	if err := PrepareZones(t.Context(), root, first, control, apply); err != nil {
+		t.Fatal(err)
+	}
+	before := mustReadCurrent(t, root)
+	control.fail = true
+	second := candidate("example.internal", "2.0.192.in-addr.arpa")
+	if err := PrepareZones(t.Context(), root, second, control, apply); err == nil {
+		t.Fatal("expected injected startup failure")
+	}
+	if mustReadCurrent(t, root) != before || len(control.active) != 1 || control.active["example.internal"] != 1 {
+		t.Fatal("previous zone membership was not restored")
+	}
+	if err := PrepareZones(t.Context(), root, second, control, apply); err != nil {
+		t.Fatal(err)
+	}
+	if len(control.active) != 2 {
+		t.Fatal("new zone was not registered")
+	}
+}
+
 func (c *testControl) Reload(_ context.Context, zone string) error {
 	c.reloads++
 	if c.fail {

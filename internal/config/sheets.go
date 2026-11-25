@@ -12,12 +12,13 @@ import (
 )
 
 type SheetsFetch struct {
-	CacheFile      string
-	FallbackPrefix string
-	Zone           string
-	SpreadsheetID  string
-	Ranges         []string
-	Credentials    sheets.Credentials
+	ConfirmDNSBeforeCache bool
+	CacheFile             string
+	FallbackPrefix        string
+	Zone                  string
+	SpreadsheetID         string
+	Ranges                []string
+	Credentials           sheets.Credentials
 }
 
 type googleSheetsDocument struct {
@@ -62,7 +63,8 @@ func LoadSheetsFetch(path string) (SheetsFetch, error) {
 		return SheetsFetch{}, err
 	}
 	return SheetsFetch{
-		CacheFile: doc.DNSInventory.CacheFile, FallbackPrefix: doc.DNSInventory.FallbackPrefix, Zone: doc.DNSInventory.Zone,
+		ConfirmDNSBeforeCache: doc.Renewal.FromInventory,
+		CacheFile:             doc.DNSInventory.CacheFile, FallbackPrefix: doc.DNSInventory.FallbackPrefix, Zone: doc.DNSInventory.Zone,
 		SpreadsheetID: doc.Sheets.SpreadsheetID, Ranges: doc.Sheets.Ranges, Credentials: credentials,
 	}, nil
 }

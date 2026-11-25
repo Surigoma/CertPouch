@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -11,6 +12,44 @@ import (
 	"github.com/Surigoma/CertPouch/internal/dns"
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
+
+func TestRenewalProfilesFromInventory(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "inventory.json")
+	path := filepath.Join(dir, "server.yaml")
+	if err := os.WriteFile(cache, []byte(`{"valueRanges":[{"values":[["","192.0.2","10","web01","","","portal"]]}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: "example.internal"}
+renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_certificate: %q, issuer_private_key: %q}
+`, cache, filepath.Join(dir, "issuer.pem"), filepath.Join(dir, "issuer.key"))
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadRenewal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Profiles) != 2 || cfg.Profiles[0].Name != "portal.example.internal" ||
+		cfg.Profiles[1].Name != "web01.pvt.example.internal" {
+		t.Fatalf("unexpected profiles: %+v", cfg.Profiles)
+	}
+}
+
+func TestDecodeWorkflowExample(t *testing.T) {
+	body, err := os.ReadFile("../../configs/workflow-server.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := decodeServer(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Deployment == nil || doc.Deployment.NSDInclude == "" || len(doc.Sheets.Ranges) != 2 ||
+		len(doc.Zones.ReverseZones) != 1 || !doc.Renewal.FromInventory || len(doc.Clients) != 1 {
+		t.Fatal("workflow example did not map to the operational configuration")
+	}
+}
 
 func TestCertificateSourceRules(t *testing.T) {
 	inventory, err := dns.NewInventory([]dns.Record{
@@ -42,6 +81,31 @@ func TestCertificateSourceRules(t *testing.T) {
 	doc.Overrides[web] = []string{"missing.example.internal"}
 	if _, err := doc.client(policies, &inventory); err == nil {
 		t.Fatal("accepted an override pointing to an unknown host")
+	}
+}
+
+func TestInventoryAccessModes(t *testing.T) {
+	const web = "web.example.internal"
+	inventory, err := dns.NewInventory([]dns.Record{{Name: web, Type: "A", Value: "192.0.2.10"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policies := map[string]pki.Policy{web: {}}
+	for _, mode := range []string{"names", "ip_and_names", "all"} {
+		doc := clientDocument{InventoryAccess: mode}
+		if mode != "all" {
+			doc.AllowedCertificates = []string{web}
+		}
+		rules, err := doc.inventoryRules(policies, inventory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		matches := slices.ContainsFunc(rules[web], func(prefix netip.Prefix) bool {
+			return prefix.Contains(netip.MustParseAddr("198.51.100.10"))
+		})
+		if matches != (mode != "ip_and_names") {
+			t.Fatalf("%s: unexpected rules %v", mode, rules)
+		}
 	}
 }
 

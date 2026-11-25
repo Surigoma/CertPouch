@@ -49,7 +49,7 @@ certpouch dns diff --zone-dir /var/lib/certpouch/nsd-zones --candidate "$candida
 certpouch pipeline --config /etc/certpouch/server.yaml --apply "$candidate"
 ```
 
-反映はNSDが返すSOA serialまで確認します。既存レコードの削除・置換があると、このコマンドは停止します。IP変更などで置換が意図どおりなら、差分を確認し、個別の `dns apply` に許容件数を指定します。[適用と切り戻し](dns-sync.md)
+反映はNSDが返すSOA serialまで確認します。IP変更や削除も反映されるため、実行する前に差分を確認します。[適用と切り戻し](dns-sync.md)
 
 ## 3. 既存CAで証明書を発行・公開する
 
