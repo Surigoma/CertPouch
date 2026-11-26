@@ -6,9 +6,91 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestRefreshCacheRejectsUnsafeDestinationsBeforeApply(t *testing.T) {
+	for _, tc := range []struct {
+		name, suffix, want string
+		mode               os.FileMode
+	}{
+		{"cache symlink", "", "", 0},
+		{"freshness sidecar symlink", CacheFreshnessSuffix, "check cache fetch record", 0},
+		{"world writable cache", "", "", 0666},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "snapshot.json")
+			protected := filepath.Join(dir, "original")
+			if err := os.WriteFile(protected, []byte("original"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			unsafe := path + tc.suffix
+			if tc.mode == 0 {
+				if err := os.Symlink(protected, unsafe); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.WriteFile(unsafe, []byte("unsafe"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(unsafe, tc.mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			changed, err := RefreshCacheAfter(t.Context(), path, 1024, func(context.Context) ([]byte, error) {
+				t.Error("unsafe destination passed preflight")
+				return []byte("{}"), nil
+			}, func(context.Context) error {
+				t.Error("unsafe destination reached activation")
+				return nil
+			})
+			if changed || err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("unsafe destination result = %v, %v", changed, err)
+			}
+			if data, err := os.ReadFile(protected); err != nil || string(data) != "original" {
+				t.Fatalf("cache refresh wrote through symlink: %q, %v", data, err)
+			}
+			if _, err := os.Stat(path + ".fetch-lock"); !os.IsNotExist(err) {
+				t.Fatalf("refresh left its lock: %v", err)
+			}
+		})
+	}
+}
+
+func TestRefreshCacheRejectsInvalidOrCanceledFetchBeforeApply(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		cancel     bool
+	}{
+		{"empty", "", false},
+		{"too large", "123456789", false},
+		{"canceled", "{}", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "snapshot.json")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			changed, err := RefreshCacheAfter(ctx, path, 8, func(context.Context) ([]byte, error) {
+				if tc.cancel {
+					cancel()
+				}
+				return []byte(tc.body), nil
+			}, func(context.Context) error {
+				t.Error("invalid or canceled fetch reached activation")
+				return nil
+			})
+			if changed || err == nil || (tc.cancel && !errors.Is(err, context.Canceled)) {
+				t.Fatalf("fetch result = %v, %v", changed, err)
+			}
+			if _, err := os.Lstat(path); !os.IsNotExist(err) {
+				t.Fatalf("invalid snapshot was published: %v", err)
+			}
+		})
+	}
+}
 
 func TestRefreshCacheWaitsForActivation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")

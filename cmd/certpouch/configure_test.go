@@ -68,8 +68,8 @@ func TestConfigureDNSInteractive(t *testing.T) {
 	}
 }
 
-func TestConfigureDNSWithSheets(t *testing.T) {
-	base := t.TempDir()
+func writeTestSheetsCredentials(t *testing.T, base string) string {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -90,6 +90,12 @@ func TestConfigureDNSWithSheets(t *testing.T) {
 	if err := os.WriteFile(credentialPath, credentials, 0600); err != nil {
 		t.Fatal(err)
 	}
+	return credentialPath
+}
+
+func TestConfigureDNSWithSheets(t *testing.T) {
+	base := t.TempDir()
+	credentialPath := writeTestSheetsCredentials(t, base)
 	out := filepath.Join(base, "config")
 	var stdout, stderr bytes.Buffer
 	code := runConfigure([]string{"dns",
@@ -108,6 +114,33 @@ func TestConfigureDNSWithSheets(t *testing.T) {
 	entries, err := os.ReadDir(out)
 	if err != nil || len(entries) != 1 || entries[0].Name() != "server.yaml" {
 		t.Fatalf("generated files = %v, %v; want only server.yaml", entries, err)
+	}
+}
+
+func TestConfigureDNSInteractiveSheets(t *testing.T) {
+	base := t.TempDir()
+	out := filepath.Join(base, "new")
+	credential := writeTestSheetsCredentials(t, base)
+	args := []string{"dns", "--interactive", "--out", out,
+		"--cache", filepath.Join(base, "cache.json"), "--zone", "example.internal",
+		"--fallback-prefix", "192.0.2", "--primary", "ns.example.internal"}
+	var stdout, stderr bytes.Buffer
+	if code := runConfigure(args, strings.NewReader("\n\nYES\nsheet_test\n"+credential+"\nInventory!A2:G8\n"), &stdout, &stderr); code != 0 {
+		t.Fatalf("interactive Sheets setup exit %d: %s", code, stderr.String())
+	}
+	cfg, err := config.LoadSheetsFetch(filepath.Join(out, "server.yaml"))
+	if err != nil || cfg.SpreadsheetID != "sheet_test" || len(cfg.Ranges) != 1 || cfg.Ranges[0] != "Inventory!A2:G8" {
+		t.Fatalf("unexpected generated Sheets settings: %+v, %v", cfg.Ranges, err)
+	}
+	args[3] = filepath.Join(base, "incomplete")
+	stdout.Reset()
+	stderr.Reset()
+	if code := runConfigure(args, strings.NewReader("\n\nYES\n"), &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "Spreadsheet ID must not be empty") {
+		t.Fatalf("incomplete setup exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(args[3]); !os.IsNotExist(err) {
+		t.Fatalf("incomplete setup left configuration files: %v", err)
 	}
 }
 

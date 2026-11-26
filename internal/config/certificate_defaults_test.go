@@ -11,7 +11,8 @@ import (
 	"testing"
 )
 
-func TestCertificatePolicyDefaults(t *testing.T) {
+func writeTestIssuer(t *testing.T) string {
+	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -25,6 +26,11 @@ func TestCertificatePolicyDefaults(t *testing.T) {
 	if err := os.WriteFile(issuer, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600); err != nil {
 		t.Fatal(err)
 	}
+	return issuer
+}
+
+func TestCertificatePolicyDefaults(t *testing.T) {
+	issuer := writeTestIssuer(t)
 	roots := x509.NewCertPool()
 	doc := certificateDocument{Name: "web.example.internal"}
 	policy, err := doc.policy(roots, issuer)

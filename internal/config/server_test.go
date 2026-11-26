@@ -138,3 +138,46 @@ func TestDecodeServer(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadServerRejectsUnsafeSettings(t *testing.T) {
+	ca := writeTestIssuer(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "listener.key")
+	if err := os.WriteFile(key, []byte("test placeholder"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	badCA := filepath.Join(dir, "invalid.pem")
+	if err := os.WriteFile(badCA, []byte("test placeholder"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`server:
+  listen: "127.0.0.1:8443"
+  tls: {certificate: %q, private_key: %q}
+storage: {certificate_dir: %q, trust_ca_file: %q}
+`, ca, key, dir, ca)
+	const first = "  - {name: web.example.internal, issuer_certificate: %q}\n"
+	tests := []struct {
+		name, config, want string
+	}{
+		{"invalid listen port", strings.Replace(body, "8443", "0", 1), "valid host and port"},
+		{"relative private key", strings.Replace(body, fmt.Sprintf("%q", key), "listener.key", 1), "paths must be absolute"},
+		{"missing private key", strings.Replace(body, fmt.Sprintf("%q", key), fmt.Sprintf("%q", filepath.Join(dir, "missing")), 1), "check TLS private key"},
+		{"invalid trust bundle", strings.Replace(body, "trust_ca_file: "+fmt.Sprintf("%q", ca), "trust_ca_file: "+fmt.Sprintf("%q", badCA), 1), "contains no certificates"},
+		{"relative client CA", strings.Replace(body, "private_key: "+fmt.Sprintf("%q", key), "private_key: "+fmt.Sprintf("%q", key)+", client_ca: relative.pem", 1), "client_ca must be absolute"},
+		{"fast publication refresh", strings.Replace(body, "  tls:", "  publication_refresh: 50ms\n  tls:", 1), "publication_refresh must be a duration of at least one second"},
+		{"refresh without inventory", strings.Replace(body, "  tls:", "  inventory_refresh: 1s\n  tls:", 1), "inventory_refresh requires dns_inventory"},
+		{"revocation refresh without file", strings.Replace(body, "  tls:", "  revocation_refresh: 1s\n  tls:", 1), "revocation_refresh requires server.revocation_file"},
+		{"duplicate certificate names", body + "certificates:\n" + fmt.Sprintf(first+first, ca, ca), "duplicate certificates"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "server.yaml")
+			if err := os.WriteFile(path, []byte(tc.config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadServer(path); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("LoadServer error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}

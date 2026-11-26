@@ -695,6 +695,7 @@ func (p workflowKeyPair) tlsPair(t *testing.T) tls.Certificate {
 type workflowMaterial struct {
 	caPEM                                        []byte
 	ca                                           *x509.Certificate
+	caKeyPEM                                     []byte
 	listener, first, second, client, otherClient workflowKeyPair
 }
 
@@ -744,6 +745,8 @@ func workflowCertificates(t *testing.T) workflowMaterial {
 		cert, _ := issue(node, ca, key, caKey)
 		return workflowKeyPair{cert, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})}
 	}
-	return workflowMaterial{caPEM: caPEM, ca: ca, listener: leaf(2, "listener"), first: leaf(3, "leaf"),
+	return workflowMaterial{caPEM: caPEM, ca: ca,
+		caKeyPEM: pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(caKey)}),
+		listener: leaf(2, "listener"), first: leaf(3, "leaf"),
 		second: leaf(4, "leaf"), client: leaf(5, "client"), otherClient: leaf(6, "client")}
 }

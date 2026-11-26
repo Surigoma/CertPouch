@@ -1,15 +1,119 @@
 package server
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Surigoma/CertPouch/internal/distribution"
 )
+
+func TestWatchInventoryPublicationsAppliesAuthorizationOnCatalogFailure(t *testing.T) {
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	client := distribution.Client{
+		ID: "node", Enabled: true, TokenHash: sha256.Sum256([]byte(token)),
+		AllowedIPs: []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")},
+	}
+	handler, err := NewPublicationHandler(nil, []distribution.Client{client}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(path string, want int) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "https://example.test"+path, nil)
+		req.RemoteAddr = "192.0.2.10:12345"
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CertPouch-Client-ID", client.ID)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != want {
+			t.Fatalf("%s status = %d, want %d: %s", path, res.Code, want, res.Body)
+		}
+	}
+	poll := func(load func() ([]distribution.Publication, []distribution.Client, error)) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		called := false
+		handler.WatchInventoryPublications(ctx, time.Millisecond, func() ([]distribution.Publication, []distribution.Client, error) {
+			called = true
+			defer cancel()
+			return load()
+		})
+		if !called {
+			t.Fatal("inventory watcher did not poll")
+		}
+	}
+	const inventoryPath = "/api/v1/certificates"
+	check(inventoryPath, http.StatusOK)
+	poll(func() ([]distribution.Publication, []distribution.Client, error) {
+		return []distribution.Publication{{Name: "broken.example.internal", Current: true}}, nil, nil
+	})
+	check(distribution.HealthPath, http.StatusServiceUnavailable)
+	check(inventoryPath, http.StatusUnauthorized)
+	poll(func() ([]distribution.Publication, []distribution.Client, error) {
+		return nil, []distribution.Client{client}, nil
+	})
+	check(distribution.HealthPath, http.StatusOK)
+	check(inventoryPath, http.StatusOK)
+}
+
+func TestRefreshInventorySuspendsAccessUntilRulesRecover(t *testing.T) {
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	client := distribution.Client{
+		ID: "node", Enabled: true, TokenHash: sha256.Sum256([]byte(token)),
+		AllowedIPs: []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")},
+	}
+	handler, err := NewPublicationHandler(nil, []distribution.Client{client}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus := func(want int) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, "https://example.test/api/v1/certificates", nil)
+		request.RemoteAddr = "192.0.2.10:12345"
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("X-CertPouch-Client-ID", client.ID)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Fatalf("inventory status = %d, want %d: %s", response.Code, want, response.Body)
+		}
+	}
+	recoverRules := func() {
+		t.Helper()
+		if err := handler.refreshInventory(func() ([]distribution.Client, error) {
+			return []distribution.Client{client}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		requireStatus(http.StatusOK)
+	}
+	requireStatus(http.StatusOK)
+	loadErr := errors.New("cache unavailable")
+	if err := handler.refreshInventory(func() ([]distribution.Client, error) {
+		return []distribution.Client{client}, loadErr
+	}); !errors.Is(err, loadErr) {
+		t.Fatalf("refreshInventory error = %v, want %v", err, loadErr)
+	}
+	requireStatus(http.StatusUnauthorized)
+	recoverRules()
+
+	if err := handler.refreshInventory(func() ([]distribution.Client, error) {
+		return []distribution.Client{client, client}, nil
+	}); err == nil {
+		t.Fatal("accepted duplicate client rules")
+	}
+	requireStatus(http.StatusUnauthorized)
+	recoverRules()
+}
 
 func TestReplaceSnapshotUpdatesAuthorizationWithCatalog(t *testing.T) {
 	handler, err := NewPublicationHandler(nil, nil, nil)

@@ -172,3 +172,73 @@ func TestInterruptedDeploymentRecoversOnNextPull(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRecoveryRejectsUnsafeInterruptedState(t *testing.T) {
+	old := filepath.Join("versions", strings.Repeat("a", 32))
+	next := filepath.Join("versions", strings.Repeat("b", 32))
+	for _, tc := range []struct {
+		name, record, active, want string
+		permission                 os.FileMode
+	}{
+		{"incomplete first install", "\n" + next + "\n", next, "no previous generation", 0600},
+		{"invalid path", old + "\n../outside\n", old, "invalid recovery record", 0600},
+		{"public transaction record", old + "\n" + next + "\n", old, "invalid recovery record", 0644},
+		{"unexpected current generation", old + "\n" + next + "\n", "versions/" + strings.Repeat("c", 32), "does not match recovery record", 0600},
+		{"lost previous generation", old + "\n" + next + "\n", next, "previous generation", 0600},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dest := t.TempDir()
+			lock := filepath.Join(dest, ".pull-lock")
+			if err := os.MkdirAll(filepath.Join(dest, old), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(lock, 0700); err != nil {
+				t.Fatal(err)
+			}
+			record := filepath.Join(lock, "recovery")
+			if err := os.WriteFile(record, []byte(tc.record), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(record, tc.permission); err != nil {
+				t.Fatal(err)
+			}
+			current := filepath.Join(dest, "current")
+			if err := os.Symlink(tc.active, current); err != nil {
+				t.Fatal(err)
+			}
+			opts := Options{Destination: dest, UID: -1, GID: -1, CertificateMode: 0644, PrivateKeyMode: 0600}
+			called := false
+			_, err := BeginRecovering(t.Context(), opts, func(context.Context) error { called = true; return nil })
+			if err == nil || !strings.Contains(err.Error(), tc.want) || called {
+				t.Fatalf("unsafe recovery: err=%v, activation=%v", err, called)
+			}
+			if body, err := os.ReadFile(record); err != nil || string(body) != tc.record {
+				t.Fatalf("recovery record was lost or rewritten: %q, %v", body, err)
+			}
+			if got, err := os.Readlink(current); err != nil || got != tc.active {
+				t.Fatalf("unsafe recovery changed current: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestBeginRecoveringClearsEmptyTransaction(t *testing.T) {
+	dest := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dest, ".pull-lock"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Destination: dest, UID: -1, GID: -1, CertificateMode: 0644, PrivateKeyMode: 0600}
+	s, err := BeginRecovering(t.Context(), opts, func(context.Context) error {
+		t.Error("empty transaction activated a service")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, ".pull-lock")); !os.IsNotExist(err) {
+		t.Fatalf("empty transaction still exists: %v", err)
+	}
+}

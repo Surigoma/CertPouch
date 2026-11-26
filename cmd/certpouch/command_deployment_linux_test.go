@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,5 +98,46 @@ func TestDeploymentCommandTimeout(t *testing.T) {
 	}
 	if err := apply(t.Context()); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected command deadline: %v", err)
+	}
+}
+
+func TestDeploymentRollsBackWhenTLSStillServesPreviousCertificate(t *testing.T) {
+	material := workflowCertificates(t)
+	roots := x509.NewCertPool()
+	roots.AddCert(material.ca)
+	consumer := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	consumer.TLS = &tls.Config{Certificates: []tls.Certificate{material.first.tlsPair(t)}}
+	consumer.StartTLS()
+	defer consumer.Close()
+	destination := t.TempDir()
+	session, apply, err := beginTarget(t.Context(), config.Target{
+		Destination: destination, Policy: pki.Policy{Roots: roots},
+		TLSAddress: consumer.Listener.Addr().String(), TLSServerName: "web.example.internal",
+		TLSVerifyTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := session.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	const first, second = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	install := func(version string, pair workflowKeyPair) error {
+		return session.Install(t.Context(), version, pki.Bundle{CertificatePEM: pair.cert, PrivateKeyPEM: pair.key}, apply)
+	}
+	if err := install(first, material.first); err != nil {
+		t.Fatal(err)
+	}
+	if err := install(second, material.second); err == nil || !strings.Contains(err.Error(), "different leaf certificate") {
+		t.Fatalf("expected TLS verification failure: %v", err)
+	}
+	current, err := os.Readlink(filepath.Join(destination, "current"))
+	if err != nil || filepath.Base(current) != first {
+		t.Fatalf("TLS verification failure changed current to %q: %v", current, err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "versions", second)); !os.IsNotExist(err) {
+		t.Fatalf("failed generation was not removed: %v", err)
 	}
 }

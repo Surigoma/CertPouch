@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +86,54 @@ func TestPublishPreservesCurrentOnValidationFailure(t *testing.T) {
 	if err != nil || stat.Mode().Perm() != 0600 {
 		t.Fatalf("previous generation or key permissions changed: %v, %v", stat, err)
 	}
+	t.Run("reject unsafe publication locations", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, storePath, want string
+			setup                 func(*testing.T, string)
+		}{
+			{name: "relative store", storePath: "relative", want: "invalid storage directory"},
+			{name: "missing store", storePath: filepath.Join(dir, "missing"), want: "no such file"},
+			{name: "public store", want: "private regular directory", setup: func(t *testing.T, path string) {
+				if err := os.Chmod(path, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{name: "already locked", want: "acquire publication lock", setup: func(t *testing.T, path string) {
+				if err := os.MkdirAll(filepath.Join(path, name, ".publish-lock"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{name: "invalid current", want: "current does not reference a managed generation", setup: func(t *testing.T, path string) {
+				subdir := filepath.Join(path, name)
+				if err := os.Mkdir(subdir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("unmanaged", filepath.Join(subdir, "current")); err != nil {
+					t.Fatal(err)
+				}
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				path := tc.storePath
+				if tc.setup != nil {
+					path = t.TempDir()
+					if err := os.Chmod(path, 0700); err != nil {
+						t.Fatal(err)
+					}
+					tc.setup(t, path)
+				}
+				if _, err := Publish(path, name, policy, bundle, now); err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("Publish error = %v, want %q", err, tc.want)
+				}
+				if _, err := os.Lstat(filepath.Join(path, name, "versions")); !os.IsNotExist(err) {
+					t.Fatalf("rejected publication created a generation: %v", err)
+				}
+			})
+		}
+		if _, err := PublishIfCurrent(dir, name, policy, bundle, now, "invalid"); err == nil || !strings.Contains(err.Error(), "invalid expected generation") {
+			t.Fatalf("invalid expected generation error = %v", err)
+		}
+	})
 	t.Run("separate issuer keeps server ownership", func(t *testing.T) {
 		if os.Geteuid() != 0 {
 			t.Skip("running as root is required to verify ownership transfer")
@@ -120,4 +169,34 @@ func TestPublishPreservesCurrentOnValidationFailure(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestReadPublicationFilesRejectsUnsafeArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	leaf, key := filepath.Join(dir, "certificate.pem"), filepath.Join(dir, "private-key.pem")
+	for _, path := range []string{leaf, key} {
+		if err := os.WriteFile(path, []byte("test artifact"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(dir, "key-link")
+	if err := os.Symlink(key, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(key, 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, leaf, key string }{
+		{"missing key argument", leaf, ""},
+		{"public private key", leaf, key},
+		{"symlink artifact", leaf, link},
+		{"missing artifact directory", filepath.Join(dir, "absent", "leaf.pem"), key},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle, err := ReadPublicationFiles(tc.leaf, "", tc.key)
+			if err == nil || len(bundle.CertificatePEM) != 0 || len(bundle.PrivateKeyPEM) != 0 {
+				t.Fatalf("unsafe artifacts returned partial data, error=%v", err)
+			}
+		})
+	}
 }
