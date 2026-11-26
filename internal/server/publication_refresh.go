@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -93,6 +94,41 @@ func (h *PublicationHandler) WatchRevocations(ctx context.Context, interval time
 
 func (h *PublicationHandler) Watch(ctx context.Context, interval time.Duration, load func() ([]distribution.Publication, error)) {
 	h.watch(ctx, interval, "could not refresh certificate publications", func() error { return h.refresh(load) })
+}
+
+// WatchInventoryPublications rebuilds the catalog and its authorization from
+// one inventory read. Even if catalog loading fails, the new authorization
+// still applies to the previous catalog.
+func (h *PublicationHandler) WatchInventoryPublications(ctx context.Context, interval time.Duration, load func() ([]distribution.Publication, []distribution.Client, error)) {
+	h.watch(ctx, interval, "could not refresh inventory publications", func() error {
+		publications, clients, loadErr := load()
+		if loadErr == nil {
+			loadErr = h.replaceSnapshot(publications, clients)
+		}
+		h.storeUnavailable.Store(loadErr != nil)
+		if loadErr != nil {
+			return errors.Join(loadErr, h.refreshInventory(func() ([]distribution.Client, error) {
+				return clients, nil
+			}))
+		}
+		return nil
+	})
+}
+
+func (h *PublicationHandler) replaceSnapshot(publications []distribution.Publication, clients []distribution.Client) error {
+	h.update.Lock()
+	defer h.update.Unlock()
+	loaded := publicationDigests(publications)
+	if slices.Equal(h.loaded, loaded) && reflect.DeepEqual(h.clients, clients) {
+		return nil
+	}
+	handler, err := distribution.NewHandlerWithRevocations(publications, clients, h.logger, h.revocations)
+	if err != nil {
+		return err
+	}
+	h.current.Store(handler)
+	h.loaded, h.clients = loaded, clients
+	return nil
 }
 
 // WatchInventory uses a separate refresh cycle so an invalid certificate

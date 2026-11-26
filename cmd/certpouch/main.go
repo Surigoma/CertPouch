@@ -143,27 +143,24 @@ func runServer(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	refreshContext, stopRefresh := context.WithCancel(ctx)
 	defer stopRefresh()
-	if cfg.PublicationRefresh != 0 {
-		go handler.Watch(refreshContext, cfg.PublicationRefresh, func() ([]distribution.Publication, error) {
-			if cfg.InventoryCertificates {
-				current, err := config.LoadServer(*path)
-				if err != nil {
-					return nil, err
-				}
-				return storage.Load(current.CertificateDir, current.Policies)
+	if cfg.InventoryCertificates {
+		go handler.WatchInventoryPublications(refreshContext, min(cfg.PublicationRefresh, cfg.InventoryRefresh), func() ([]distribution.Publication, []distribution.Client, error) {
+			current, err := config.LoadServer(*path)
+			if err != nil {
+				return nil, nil, err
 			}
-			return storage.Load(cfg.CertificateDir, cfg.Policies)
+			publications, err := storage.Load(current.CertificateDir, current.Policies)
+			return publications, current.Clients, err
 		})
-	}
-	if cfg.InventoryRefresh != 0 {
-		loadClients := cfg.ReloadInventoryClients
-		if cfg.InventoryCertificates {
-			loadClients = func() ([]distribution.Client, error) {
-				current, err := config.LoadServer(*path)
-				return current.Clients, err
-			}
+	} else {
+		if cfg.PublicationRefresh != 0 {
+			go handler.Watch(refreshContext, cfg.PublicationRefresh, func() ([]distribution.Publication, error) {
+				return storage.Load(cfg.CertificateDir, cfg.Policies)
+			})
 		}
-		go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, loadClients)
+		if cfg.InventoryRefresh != 0 {
+			go handler.WatchInventory(refreshContext, cfg.InventoryRefresh, cfg.ReloadInventoryClients)
+		}
 	}
 	if revocations != nil {
 		go handler.WatchRevocations(refreshContext, cfg.RevocationRefresh, func() (distribution.Revocations, error) {

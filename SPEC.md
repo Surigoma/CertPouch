@@ -52,7 +52,7 @@ See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 | `certpouch dns diff --candidate PATH` | Compares a candidate with a managed `--zone-dir` or a staged `--baseline`. |
 | `certpouch dns apply --candidate PATH --zone-dir PATH` | Initializes the managed snapshot with `--initialize`, or updates NSD and verifies the served SOA serials. |
 
-Use subcommand `--help` for the full flag list. Configuration paths are explicit. `configure server|client` uses the same implementation as the corresponding `init` command. See the [CLI contract](docs/SPEC/01-scope-architecture.md#cli契約), [configuration command](docs/configure.md), and [examples for common commands](docs/quickstart.md#普段使うコマンド).
+Use subcommand `--help` for the full flag list. Configuration paths are explicit. See the [CLI contract](docs/SPEC/01-scope-architecture.md#cli契約), [configuration command](docs/configure.md), and [examples for common commands](docs/quickstart.md#普段使うコマンド).
 
 Release archives include Linux-only installation and removal scripts. They install only the executable and their management metadata; operational data and systemd configuration are intentionally preserved. See [Linux installation](docs/linux-installation.md).
 

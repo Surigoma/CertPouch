@@ -93,14 +93,14 @@ func Activate(ctx context.Context, root, candidate string, options ActivationOpt
 	if err := managedDirectory(root); err != nil {
 		return "", err
 	}
-	lock := filepath.Join(root, ".dns-apply-lock")
-	if err := os.Mkdir(lock, 0700); err != nil {
-		return "", fmt.Errorf("acquire DNS activation lock: %w", err)
+	lock, err := acquireActivationLock(root)
+	if err != nil {
+		return "", err
 	}
 	preserve := false
 	defer func() {
 		if !preserve {
-			err = errors.Join(err, os.Remove(lock), syncDirectory(root))
+			err = errors.Join(err, releaseActivationLock(root, lock))
 		}
 	}()
 	newZones, err := readSnapshot(candidate)
@@ -183,6 +183,18 @@ func Activate(ctx context.Context, root, candidate string, options ActivationOpt
 	}
 	preserve = false
 	return snapshot, err
+}
+
+func acquireActivationLock(root string) (string, error) {
+	lock := filepath.Join(root, ".dns-apply-lock")
+	if err := os.Mkdir(lock, 0700); err != nil {
+		return "", fmt.Errorf("acquire DNS activation lock: %w", err)
+	}
+	return lock, nil
+}
+
+func releaseActivationLock(root, lock string) error {
+	return errors.Join(os.Remove(lock), syncDirectory(root))
 }
 
 func readSnapshot(dir string) ([]ZoneSnapshot, error) {

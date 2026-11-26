@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,7 @@ import (
 	"github.com/Surigoma/CertPouch/internal/sheets"
 )
 
-func watchPipeline(ctx context.Context, path string, deployment config.DNSDeployment, out, diagnostic io.Writer) int {
+func watchPipeline(ctx context.Context, path string, deployment config.DNSDeployment, once bool, out, diagnostic io.Writer) int {
 	interval := 3 * time.Minute
 	var err error
 	if deployment.PollInterval != "" {
@@ -45,6 +46,13 @@ func watchPipeline(ctx context.Context, path string, deployment config.DNSDeploy
 	}
 	failures := 0
 	startup := deployment.NSDInclude != ""
+	if once {
+		if err := syncPipeline(ctx, path, deployment, control, &startup, out); err != nil {
+			fmt.Fprintln(diagnostic, err)
+			return 1
+		}
+		return 0
+	}
 	for ctx.Err() == nil {
 		delay := interval
 		if err := syncPipeline(ctx, path, deployment, control, &startup, out); err != nil {
@@ -71,11 +79,13 @@ func syncPipeline(ctx context.Context, path string, deployment config.DNSDeploym
 	if err != nil {
 		return err
 	}
-	_, err = dns.RefreshCache(ctx, fetch.CacheFile, sheets.MaxSnapshotBytes, func(ctx context.Context) ([]byte, error) {
-		body, inventory, err := fetchSheetsInventory(ctx, fetch)
-		if err != nil {
-			return nil, err
-		}
+	var inventory dns.Inventory
+	var generation string
+	_, err = dns.RefreshCacheAfter(ctx, fetch.CacheFile, sheets.MaxSnapshotBytes, func(ctx context.Context) ([]byte, error) {
+		body, parsed, err := fetchSheetsInventory(ctx, fetch)
+		inventory = parsed
+		return body, err
+	}, func(ctx context.Context) error {
 		serialDir := deployment.ZoneDir
 		if *startup {
 			if _, err := os.Lstat(filepath.Join(serialDir, "current")); os.IsNotExist(err) {
@@ -84,11 +94,11 @@ func syncPipeline(ctx context.Context, path string, deployment config.DNSDeploym
 		}
 		zones, err := config.RenderFetchedDNSZones(path, serialDir, inventory, *startup)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		candidate, err := stageDNSZones(ctx, deployment.StageDir, zones)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer func() {
 			for _, zone := range zones {
@@ -98,32 +108,26 @@ func syncPipeline(ctx context.Context, path string, deployment config.DNSDeploym
 		}()
 		if *startup {
 			if err := prepareNSD(ctx, deployment, candidate, control); err != nil {
-				return nil, err
+				return err
 			}
 			*startup = false
 		}
-		generation, err := dns.Activate(ctx, deployment.ZoneDir, candidate, dns.ActivationOptions{}, control)
+		generation, err = dns.Activate(ctx, deployment.ZoneDir, candidate, dns.ActivationOptions{}, control)
 		if err != nil {
-			return nil, fmt.Errorf("NSD activation failed: %w", err)
+			return fmt.Errorf("NSD activation failed: %w", err)
 		}
-		if _, err := fmt.Fprintln(out, generation); err != nil {
-			return nil, err
-		}
-		return body, nil
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	server, err := config.LoadServer(path)
+	_, reportErr := fmt.Fprintln(out, generation)
+	server, renewal, err := config.LoadRenewalInputs(path)
 	if err != nil {
-		return err
-	}
-	renewal, err := config.LoadRenewal(path)
-	if err != nil {
-		return err
+		return errors.Join(reportErr, err)
 	}
 	if err := renewCertificates(ctx, server, renewal, false, out); err != nil {
-		return fmt.Errorf("certificate renewal failed after DNS activation: %w", err)
+		return errors.Join(reportErr, fmt.Errorf("certificate renewal failed after DNS activation: %w", err))
 	}
-	return nil
+	return reportErr
 }

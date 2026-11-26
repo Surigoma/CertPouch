@@ -115,11 +115,25 @@ func PublicationLocations(path string) (string, []string, error) {
 	if !filepath.IsAbs(doc.Storage.CertificateDir) {
 		return "", nil, fmt.Errorf("storage.certificate_dir must be absolute")
 	}
+	if doc.Renewal.FromInventory {
+		inventory, err := doc.loadIssuanceInventory()
+		if err != nil {
+			return "", nil, err
+		}
+		return doc.Storage.CertificateDir, inventory.Names(), nil
+	}
 	var names []string
 	for _, certificate := range doc.Certificates {
 		names = append(names, certificate.Name)
 	}
 	return doc.Storage.CertificateDir, names, nil
+}
+
+func (doc serverDocument) loadIssuanceInventory() (dns.Inventory, error) {
+	if doc.DNSInventory == nil {
+		return dns.Inventory{}, fmt.Errorf("inventory issuance requires a DNS inventory")
+	}
+	return doc.DNSInventory.load()
 }
 
 func readServerDocument(path string) (serverDocument, error) {

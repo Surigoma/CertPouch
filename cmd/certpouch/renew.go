@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/config"
-	"github.com/Surigoma/CertPouch/internal/distribution"
 	"github.com/Surigoma/CertPouch/internal/pki"
 	"github.com/Surigoma/CertPouch/internal/storage"
 )
@@ -36,15 +36,17 @@ func runRenew(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stderr, "certificate renewal requires Linux")
 		return 1
 	}
-	if *renewalPath == "" {
-		*renewalPath = *serverPath
+	var server config.Server
+	var renewal config.Renewal
+	var err error
+	if *renewalPath == "" || *renewalPath == *serverPath {
+		server, renewal, err = config.LoadRenewalInputs(*serverPath)
+	} else {
+		server, err = config.LoadServer(*serverPath)
+		if err == nil {
+			renewal, err = config.LoadRenewal(*renewalPath)
+		}
 	}
-	server, err := config.LoadServer(*serverPath)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	renewal, err := config.LoadRenewal(*renewalPath)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -57,75 +59,71 @@ func runRenew(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 }
 
 func renewCertificates(ctx context.Context, server config.Server, cfg config.Renewal, preview bool, out io.Writer) error {
-	policies := make(map[string]pki.Policy, len(cfg.Profiles))
 	profiles := slices.Clone(cfg.Profiles)
 	slices.SortFunc(profiles, func(a, b config.RenewalProfile) int { return strings.Compare(a.Name, b.Name) })
-	for _, profile := range profiles {
-		policy, ok := server.Policies[profile.Name]
-		if !ok {
-			return fmt.Errorf("renewal profile %q is not configured on the server", profile.Name)
-		}
-		policies[profile.Name] = policy
-	}
-	published, err := storage.Load(server.CertificateDir, policies)
-	if err != nil {
+	if _, err := storage.Load(server.CertificateDir, nil); err != nil {
 		return err
 	}
-	active := make(map[string]distribution.Publication, len(published))
-	for _, generation := range published {
-		active[generation.Name] = generation
-	}
 	now := time.Now().UTC()
-	type decision struct {
-		profile config.RenewalProfile
-		action  string
-	}
-	var decisions []decision
-	for _, profile := range profiles {
-		action := "issue"
-		if previous, ok := active[profile.Name]; ok {
-			due, err := pki.RenewalDue(previous.Bundle, previous.Policy, now, profile.RenewBefore)
-			if err != nil {
-				return fmt.Errorf("%s: %w", profile.Name, err)
-			}
-			action = "unchanged"
-			if due {
-				action = "renew"
-			}
-		}
-		decisions = append(decisions, decision{profile, action})
-	}
+	var failures error
 	var issuer *pki.Issuer
-	for _, d := range decisions {
+	for _, profile := range profiles {
 		if err := ctx.Err(); err != nil {
-			return err
+			return errors.Join(failures, err)
 		}
-		profile := d.profile
-		version := active[profile.Name].Version
-		if !preview && d.action != "unchanged" {
+		name := profile.Name
+		policy, ok := server.Policies[name]
+		if !ok {
+			failures = errors.Join(failures, fmt.Errorf("renewal profile %q is not configured on the server", name))
+			continue
+		}
+		action, version, err := planRenewal(server.CertificateDir, profile, policy, now)
+		if err != nil {
+			failures = errors.Join(failures, fmt.Errorf("%s: %w", name, err))
+			continue
+		}
+		if !preview && action != "unchanged" {
 			if issuer == nil {
 				issuer, err = cfg.LoadIssuer(ctx)
 				if err != nil {
-					return err
+					return errors.Join(failures, err)
 				}
 			}
 			instant := time.Now().UTC()
-			policy := policies[profile.Name]
-			bundle, err := issuer.IssueServer(profile.Name, policy, instant, profile.Validity)
-			if err != nil {
-				return fmt.Errorf("%s: %w", profile.Name, err)
+			bundle, err := issuer.IssueServer(name, policy, instant, profile.Validity)
+			if err == nil {
+				if err := ctx.Err(); err != nil {
+					return errors.Join(failures, err)
+				}
+				version, err = storage.PublishIfCurrent(server.CertificateDir, name, policy, bundle, instant, version)
 			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			version, err = storage.PublishIfCurrent(server.CertificateDir, profile.Name, policy, bundle, instant, version)
 			if err != nil {
-				return fmt.Errorf("%s: %w", profile.Name, err)
+				failures = errors.Join(failures, fmt.Errorf("%s: %w", name, err))
+				continue
 			}
 		}
-		if _, err := fmt.Fprintf(out, "%s\t%s\t%s\n", profile.Name, d.action, version); err != nil {
-			return err
+		if _, err := fmt.Fprintf(out, "%s\t%s\t%s\n", name, action, version); err != nil {
+			return errors.Join(failures, err)
 		}
 	}
-	return nil
+	return failures
+}
+
+func planRenewal(directory string, profile config.RenewalProfile, policy pki.Policy, now time.Time) (string, string, error) {
+	published, err := storage.Load(directory, map[string]pki.Policy{profile.Name: policy})
+	if err != nil {
+		return "", "", err
+	}
+	if len(published) == 0 {
+		return "issue", "", nil
+	}
+	previous := published[0]
+	due, err := pki.RenewalDue(previous.Bundle, policy, now, profile.RenewBefore)
+	if err != nil {
+		return "", "", err
+	}
+	if due {
+		return "renew", previous.Version, nil
+	}
+	return "unchanged", previous.Version, nil
 }

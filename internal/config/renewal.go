@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/pki"
@@ -39,21 +40,49 @@ func LoadRenewal(path string) (Renewal, error) {
 		return cfg, fmt.Errorf("read renewal configuration: %w", err)
 	}
 	if doc, unifiedErr := decodeServer(raw); unifiedErr == nil && (len(doc.Renewal.Profiles) != 0 || doc.Renewal.FromInventory) {
-		cfg = doc.Renewal
-		if cfg.FromInventory {
-			if doc.DNSInventory == nil || len(cfg.Profiles) != 0 {
-				return cfg, fmt.Errorf("inventory renewal requires an inventory and no explicit profiles")
-			}
-			inventory, err := doc.DNSInventory.load()
+		var names []string
+		if doc.Renewal.FromInventory {
+			inventory, err := doc.loadIssuanceInventory()
 			if err != nil {
 				return cfg, err
 			}
-			for _, name := range inventory.Names() {
-				cfg.Profiles = append(cfg.Profiles, RenewalProfile{Name: name, ValidityText: cfg.Validity, RenewBeforeText: cfg.RenewBefore})
-			}
+			names = inventory.Names()
 		}
+		return renewalForNames(doc.Renewal, names)
 	} else if err := decodeYAML(raw, &cfg); err != nil {
 		return cfg, err
+	}
+	return validateRenewal(cfg)
+}
+
+// LoadRenewalInputs derives authorization policy and issuance profiles from
+// the same configuration and committed inventory.
+func LoadRenewalInputs(path string) (Server, Renewal, error) {
+	doc, err := readServerDocument(path)
+	if err != nil {
+		return Server{}, Renewal{}, err
+	}
+	server, err := loadServerDocument(doc)
+	if err != nil {
+		return Server{}, Renewal{}, err
+	}
+	names := make([]string, 0, len(server.Policies))
+	for name := range server.Policies {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	renewal, err := renewalForNames(doc.Renewal, names)
+	return server, renewal, err
+}
+
+func renewalForNames(cfg Renewal, names []string) (Renewal, error) {
+	if cfg.FromInventory {
+		if len(cfg.Profiles) != 0 {
+			return cfg, fmt.Errorf("inventory renewal cannot include explicit profiles")
+		}
+		for _, name := range names {
+			cfg.Profiles = append(cfg.Profiles, RenewalProfile{Name: name, ValidityText: cfg.Validity, RenewBeforeText: cfg.RenewBefore})
+		}
 	}
 	return validateRenewal(cfg)
 }

@@ -20,9 +20,10 @@ func TestRenewalProfilesFromInventory(t *testing.T) {
 	if err := os.WriteFile(cache, []byte(`{"valueRanges":[{"values":[["","192.0.2","10","web01","","","portal"]]}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	body := fmt.Sprintf(`dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: "example.internal"}
+	body := fmt.Sprintf(`storage: {certificate_dir: %q}
+dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: "example.internal"}
 renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_certificate: %q, issuer_private_key: %q}
-`, cache, filepath.Join(dir, "issuer.pem"), filepath.Join(dir, "issuer.key"))
+`, dir, cache, filepath.Join(dir, "issuer.pem"), filepath.Join(dir, "issuer.key"))
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +34,10 @@ renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_c
 	if len(cfg.Profiles) != 2 || cfg.Profiles[0].Name != "portal.example.internal" ||
 		cfg.Profiles[1].Name != "web01.pvt.example.internal" {
 		t.Fatalf("unexpected profiles: %+v", cfg.Profiles)
+	}
+	_, names, err := PublicationLocations(path)
+	if err != nil || !slices.Equal(names, []string{cfg.Profiles[0].Name, cfg.Profiles[1].Name}) {
+		t.Fatalf("status and renewal differ: %v, %v", names, err)
 	}
 }
 

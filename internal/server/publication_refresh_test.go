@@ -4,11 +4,34 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
 	"github.com/Surigoma/CertPouch/internal/distribution"
 )
+
+func TestReplaceSnapshotUpdatesAuthorizationWithCatalog(t *testing.T) {
+	handler, err := NewPublicationHandler(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := handler.current.Load()
+	clients := []distribution.Client{{ID: "host", AllowedIPs: []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}}}
+	if err := handler.replaceSnapshot(nil, clients); err != nil {
+		t.Fatal(err)
+	}
+	current := handler.current.Load()
+	if current == initial {
+		t.Fatal("authorization-only change did not replace the snapshot")
+	}
+	if err := handler.replaceSnapshot([]distribution.Publication{{Name: "bad.example.internal", Current: true}}, nil); err == nil {
+		t.Fatal("invalid catalog was accepted")
+	}
+	if handler.current.Load() != current {
+		t.Fatal("failed validation replaced the current snapshot")
+	}
+}
 
 func TestRefreshKeepsLastValidatedHandler(t *testing.T) {
 	handler, err := NewPublicationHandler(nil, nil, nil)

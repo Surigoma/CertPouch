@@ -16,6 +16,13 @@ import (
 // RefreshCache snapshots a complete validated response and replaces the old
 // cache only when the bytes differ. One local writer runs at a time.
 func RefreshCache(ctx context.Context, path string, limit int, fetch func(context.Context) ([]byte, error)) (changed bool, err error) {
+	return RefreshCacheAfter(ctx, path, limit, fetch, nil)
+}
+
+// RefreshCacheAfter validates the snapshot size and cache destination before
+// applying external state. A successful apply is followed by a cache commit
+// even if cancellation arrives between those two operations.
+func RefreshCacheAfter(ctx context.Context, path string, limit int, fetch func(context.Context) ([]byte, error), apply func(context.Context) error) (changed bool, err error) {
 	if !filepath.IsAbs(path) || limit <= 0 || fetch == nil {
 		return false, fmt.Errorf("cache refresh requires an absolute file path and a bounded fetch")
 	}
@@ -56,14 +63,45 @@ func RefreshCache(ctx context.Context, path string, limit int, fetch func(contex
 		return false, err
 	}
 	changed = previous == nil || !bytes.Equal(body, old)
+	var stagedCache string
 	if changed {
-		if err := writeCacheFile(path, body, previous, previous); err != nil {
+		stagedCache, err = stageCacheFile(path, body, previous)
+		if err != nil {
 			return false, err
 		}
-	} else if err := unchangedCacheFile(path, previous); err != nil {
+		defer os.Remove(stagedCache)
+	}
+	stagedRecord, err := stageCacheFile(recordPath, record, previous)
+	if err != nil {
+		return false, fmt.Errorf("stage cache fetch record: %w", err)
+	}
+	defer os.Remove(stagedRecord)
+	if err := unchangedCacheFile(path, previous); err != nil {
 		return false, err
 	}
-	if err := writeCacheFile(recordPath, record, recordInfo, previous); err != nil {
+	if err := unchangedCacheFile(recordPath, recordInfo); err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if apply != nil {
+		if err := apply(ctx); err != nil {
+			return false, err
+		}
+	}
+	if err := unchangedCacheFile(path, previous); err != nil {
+		return false, err
+	}
+	if err := unchangedCacheFile(recordPath, recordInfo); err != nil {
+		return false, err
+	}
+	if changed {
+		if err := os.Rename(stagedCache, path); err != nil {
+			return false, err
+		}
+	}
+	if err := os.Rename(stagedRecord, recordPath); err != nil {
 		return changed, fmt.Errorf("write cache fetch record: %w", err)
 	}
 	if err := syncDirectory(dir); err != nil {
@@ -73,18 +111,22 @@ func RefreshCache(ctx context.Context, path string, limit int, fetch func(contex
 }
 
 // format supplies mode and group from the cache, including for the sidecar.
-func writeCacheFile(path string, body []byte, previous, format os.FileInfo) error {
+func stageCacheFile(path string, body []byte, format os.FileInfo) (name string, err error) {
 	file, err := os.CreateTemp(filepath.Dir(path), ".dns-cache-")
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer os.Remove(file.Name())
+	defer func() {
+		if err != nil {
+			_ = os.Remove(file.Name())
+		}
+	}()
 	if format != nil {
 		stat := format.Sys().(*syscall.Stat_t)
 		created, statErr := file.Stat()
 		if statErr != nil {
 			file.Close()
-			return statErr
+			return "", statErr
 		}
 		if created.Sys().(*syscall.Stat_t).Gid != stat.Gid {
 			err = file.Chown(-1, int(stat.Gid))
@@ -100,12 +142,9 @@ func writeCacheFile(path string, body []byte, previous, format os.FileInfo) erro
 		err = file.Sync()
 	}
 	if err := errors.Join(err, file.Close()); err != nil {
-		return err
+		return "", err
 	}
-	if err := unchangedCacheFile(path, previous); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
+	return file.Name(), nil
 }
 
 func unchangedCacheFile(path string, previous os.FileInfo) error {

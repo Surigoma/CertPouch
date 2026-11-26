@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+func TestRefreshCacheWaitsForActivation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.json")
+	fetch := func(context.Context) ([]byte, error) { return []byte("{}"), nil }
+	failure := errors.New("activation failed")
+	if _, err := RefreshCacheAfter(t.Context(), path, 1024, fetch, func(context.Context) error { return failure }); !errors.Is(err, failure) {
+		t.Fatalf("expected activation failure: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("cache published without activation: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if _, err := RefreshCacheAfter(ctx, path, 1024, fetch, func(context.Context) error {
+		cancel()
+		return nil
+	}); err != nil {
+		t.Fatalf("confirmed activation must finish cache commit: %v", err)
+	}
+}
+
 func TestRefreshCachePreservesOldSnapshotOnFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	const old = `{"old":"snapshot"}`

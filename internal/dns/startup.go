@@ -20,14 +20,14 @@ func PrepareZones(ctx context.Context, root, candidate string, control ZoneContr
 	if err := managedDirectory(root); err != nil {
 		return err
 	}
-	lock := filepath.Join(root, ".dns-apply-lock")
-	if err := os.Mkdir(lock, 0700); err != nil {
+	lock, err := acquireActivationLock(root)
+	if err != nil {
 		return err
 	}
 	keepLock := false
 	defer func() {
 		if !keepLock {
-			err = errors.Join(err, os.Remove(lock), syncDirectory(root))
+			err = errors.Join(err, releaseActivationLock(root, lock))
 		}
 	}()
 	next, err := readSnapshot(candidate)
@@ -72,7 +72,10 @@ func PrepareZones(ctx context.Context, root, candidate string, control ZoneContr
 	}
 	recovery := filepath.Join(lock, "startup-recovery")
 	if err := writeZoneFile(recovery, []byte(oldTarget+"\n"+target+"\n"), 0600); err != nil {
-		return err
+		return errors.Join(err, removeIfExists(recovery))
+	}
+	if err := syncDirectory(lock); err != nil {
+		return errors.Join(err, removeIfExists(recovery))
 	}
 	keepLock = true
 	err = switchSnapshot(root, lock, target)
