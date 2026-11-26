@@ -163,6 +163,9 @@ func loadClient(path string, network bool) (Client, error) {
 			return Client{}, fmt.Errorf("certificates[%d] cannot configure both service and command", i)
 		}
 		if service := target.Service; service != nil {
+			if service.Unit == "" || service.Action == "" {
+				return Client{}, fmt.Errorf("certificates[%d].service requires unit and action", i)
+			}
 			entry.Unit, entry.Action = service.Unit, service.Action
 			probe = service.VerifyTLS
 		}

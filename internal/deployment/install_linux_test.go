@@ -12,6 +12,33 @@ import (
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
 
+func TestConfigurePlacementWithoutService(t *testing.T) {
+	dest := t.TempDir()
+	if err := os.Chmod(dest, 0700); err != nil {
+		t.Fatal(err)
+	}
+	options, apply, err := Configure(dest, "", "", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := BeginRecovering(t.Context(), options, apply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	version := strings.Repeat("a", 32)
+	bundle := pki.Bundle{CertificatePEM: []byte("leaf"), PrivateKeyPEM: []byte("private")}
+	if err := session.Install(t.Context(), version, bundle, apply); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(filepath.Join(dest, "current")); err != nil || target != "versions/"+version {
+		t.Fatalf("current = %q, %v", target, err)
+	}
+	if _, _, err := Configure(dest, "", "", "", "", "", "reload"); err == nil {
+		t.Fatal("accepted incomplete service configuration")
+	}
+}
+
 func TestInstallRollback(t *testing.T) {
 	mask := syscall.Umask(0077)
 	defer syscall.Umask(mask)

@@ -17,6 +17,13 @@ const SystemdTimeout = 30 * time.Second
 var serviceUnit = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$`)
 
 func Configure(destination, owner, group, publicMode, keyMode, unit, action string) (Options, func(context.Context) error, error) {
+	if unit == "" && action == "" {
+		options, err := configureFiles(destination, owner, group, publicMode, keyMode)
+		if err != nil {
+			return Options{}, nil, err
+		}
+		return options, func(context.Context) error { return nil }, nil
+	}
 	if !serviceUnit.MatchString(unit) || (action != "reload" && action != "restart") {
 		return Options{}, nil, fmt.Errorf("configure a valid systemd service unit and reload or restart action")
 	}
