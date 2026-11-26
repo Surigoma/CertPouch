@@ -26,65 +26,78 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "pipeline" {
-		return runPipeline(ctx, args[1:], os.Stdout, stderr)
+	if len(args) == 0 {
+		fmt.Fprint(stderr, commandHelp)
+		return 2
 	}
-	if len(args) > 0 && args[0] == "configure" {
-		return runConfigure(args[1:], os.Stdin, os.Stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "init" {
+	rest := args[1:]
+	switch args[0] {
+	case "pipeline":
+		return runPipeline(ctx, rest, os.Stdout, stderr)
+	case "configure":
+		return runConfigure(rest, os.Stdin, os.Stdout, stderr)
+	case "init":
 		fmt.Fprintln(stderr, "Use certpouch configure server|client --help.")
 		return 2
-	}
-	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
-		switch args[0] {
-		case "dns":
-			fmt.Fprintln(stderr, "Usage: certpouch dns fetch|sync|diff|apply --help")
-			return 0
-		case "cert":
-			fmt.Fprintln(stderr, "Usage: certpouch cert publish|renew|status --help")
+	case "dns", "cert":
+		return runCommandGroup(ctx, args[0], rest, stderr)
+	case "pull":
+		return runPull(ctx, rest, os.Stdout, stderr)
+	case "status":
+		return runStatus(rest, os.Stdout, stderr)
+	case "server":
+		return runServer(ctx, rest, stderr)
+	case "--help", "-h":
+		if len(rest) == 0 {
+			fmt.Fprint(stderr, commandHelp)
 			return 0
 		}
 	}
-	if len(args) >= 2 && args[0] == "dns" && args[1] == "sync" {
-		return runDNSSync(ctx, args[2:], os.Stdout, stderr)
-	}
-	if len(args) >= 2 && args[0] == "dns" && args[1] == "fetch" {
-		return runDNSFetch(ctx, args[2:], os.Stdout, stderr)
-	}
-	if len(args) >= 2 && args[0] == "dns" && args[1] == "apply" {
-		return runDNSApply(ctx, args[2:], os.Stdout, stderr)
-	}
-	if len(args) >= 2 && args[0] == "dns" && args[1] == "diff" {
-		return runDNSDiff(args[2:], os.Stdout, stderr)
-	}
-	if len(args) >= 2 && args[0] == "cert" && args[1] == "publish" {
-		return runPublish(args[2:], os.Stdout, stderr)
-	}
-	if len(args) >= 2 && args[0] == "cert" && args[1] == "renew" {
-		return runRenew(ctx, args[2:], os.Stdout, stderr)
-	}
-	if len(args) >= 2 && args[0] == "cert" && args[1] == "status" {
-		return runPublicationStatus(args[2:], os.Stdout, stderr, time.Now())
-	}
-	if len(args) > 0 && args[0] == "pull" {
-		return runPull(ctx, args[1:], os.Stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "status" {
-		return runStatus(args[1:], os.Stdout, stderr)
-	}
-	if len(args) == 0 || args[0] != "server" {
+	fmt.Fprint(stderr, commandHelp)
+	return 2
+}
+
+func runCommandGroup(ctx context.Context, group string, args []string, stderr io.Writer) int {
+	if len(args) == 0 {
 		fmt.Fprint(stderr, commandHelp)
-		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-			return 0
-		}
 		return 2
 	}
+	rest := args[1:]
+	switch group + " " + args[0] {
+	case "dns sync":
+		return runDNSSync(ctx, rest, os.Stdout, stderr)
+	case "dns fetch":
+		return runDNSFetch(ctx, rest, os.Stdout, stderr)
+	case "dns apply":
+		return runDNSApply(ctx, rest, os.Stdout, stderr)
+	case "dns diff":
+		return runDNSDiff(rest, os.Stdout, stderr)
+	case "cert publish":
+		return runPublish(rest, os.Stdout, stderr)
+	case "cert renew":
+		return runRenew(ctx, rest, os.Stdout, stderr)
+	case "cert status":
+		return runPublicationStatus(rest, os.Stdout, stderr, time.Now())
+	}
+	if len(rest) == 0 && (args[0] == "--help" || args[0] == "-h") {
+		switch group {
+		case "dns":
+			fmt.Fprintln(stderr, "Usage: certpouch dns fetch|sync|diff|apply --help")
+		case "cert":
+			fmt.Fprintln(stderr, "Usage: certpouch cert publish|renew|status --help")
+		}
+		return 0
+	}
+	fmt.Fprint(stderr, commandHelp)
+	return 2
+}
+
+func runServer(ctx context.Context, args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to the server YAML configuration")
 	check := flags.Bool("check-config", false, "validate configuration, TLS files, and published certificates without listening")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
 		}
