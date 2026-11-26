@@ -1,4 +1,88 @@
-# 証明書を1台に配布する
+# QuickStart — SheetsからDNSと証明書を管理する
+
+## Sheetsから自動運用を始める
+
+まず、試験用のシートにホストを1台登録し、CertPouchが読み取れることを確認します。Linuxへのバイナリ配置は[インストール手順](linux-installation.md)を参照してください。後半でDNSに反映するときは、稼働中のNSDと既存のプライベートCA、配布API用のHTTPS証明書が必要です。
+
+### 1. スプレッドシートを作る
+
+新しいスプレッドシートを開いて、タブ名を `Servers` にします。下のタブ区切りの例をコピーし、セル **A1** に貼り付けます。貼り付け後、`192.0.2` がB2、`10` がC2、`web01` がD2、`portal` がG2に入っていることを確認します。
+
+```text
+除外	IPv4の先頭3区切り	IPv4の末尾	ホスト名	メモ1	メモ2	別名
+	192.0.2	10	web01			portal
+```
+
+この例では `192.0.2.10` に `web01.pvt.example.internal` と `portal.example.internal` が対応します。A列は通常空欄にし、除外する行だけ印を入れます。E・F列は自由欄で、空欄でも列は詰めません。複数の別名は同じG列のセルにカンマ区切りで書きます。実運用ではIPとゾーン名を自分の環境の値に置き換えます。[台帳の列と記入例](dns-inventory.md#台帳の記入例)
+
+ブラウザーのURLが `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=0` なら、`/d/` と次の `/` の間が **スプレッドシートID** です。この例の読み取り範囲は `'Servers'!A2:G256` です。先頭行の見出しを除き、別名が入るG列までを指定します。
+
+### 2. Google Sheets APIを有効にして鍵を作る
+
+1. [Google Cloud Console](https://console.cloud.google.com/)でプロジェクトを作成するか、既存のプロジェクトを選びます。同じプロジェクトで「APIとサービス」→「ライブラリ」を開き、**Google Sheets API** を検索して有効にします。[Google公式のAPI有効化手順](https://developers.google.com/workspace/guides/enable-apis)
+2. 「IAMと管理」→「サービス アカウント」→「サービス アカウントを作成」で、たとえば `certpouch-sheets` を作成します。このシートの読み取りだけなら、サービス アカウントにプロジェクトの編集者などのIAMロールを付与する必要はありません。作成後、`名前@プロジェクトID.iam.gserviceaccount.com` 形式のメールアドレスを控えます。[Google公式のサービスアカウント作成手順](https://developers.google.com/workspace/guides/create-credentials)
+3. 作成したアカウントを開き、「鍵」→「鍵を追加」→「新しい鍵を作成」で **JSON** を選びます。ダウンロードされたファイルがCertPouchに渡す認証情報です。組織ポリシーで鍵の作成が禁止されている場合は、管理者に相談してください。[Google公式の鍵作成手順](https://docs.cloud.google.com/iam/docs/keys-create-delete)
+4. Sheetsに戻って「共有」を開き、控えたサービス アカウントのメールアドレスを **閲覧者** として追加します。「一般的なアクセス」は「制限付き」のまま使えます。[Google公式の共有手順](https://support.google.com/drive/answer/7166529)
+
+CertPouchがこの手順で使うのはサービス アカウントのJSON鍵です。APIキーやOAuthクライアントIDの作成、ドメイン全体の委任は不要です。
+
+### 3. LinuxにJSONを置き、Sheetsの読み取りを試す
+
+JSONには秘密鍵が入っています。Git、チャット、共有フォルダーには置かず、安全な経路でLinuxへ転送してください。以下は、同期プロセスをrootで実行する同梱unitの例です。`/path/to/downloaded-key.json` は転送したファイルの実パスに置き換えます。
+
+```sh
+sudo install -d -m 0700 /etc/certpouch/secrets
+sudo install -m 0600 -o root -g root /path/to/downloaded-key.json /etc/certpouch/secrets/sheets.json
+sudo install -d -m 0750 /var/lib/certpouch
+```
+
+[自動運用の設定例](../configs/workflow-server.example.yaml)を `/etc/certpouch/server.yaml` に置きます。まず `inventory` と `dns` を使い、`certificates` と `distribution` は次の手順で追加します。Sheets関連は以下のように編集します。サンプルにある他のタブは、実際に使うときだけ指定してください。
+
+```yaml
+inventory:
+  cache_file: "/var/lib/certpouch/inventory.json"
+  fallback_prefix: "192.0.2"
+  poll_interval: "3m"
+  sheets:
+    spreadsheet_id: "REPLACE_WITH_SPREADSHEET_ID"
+    ranges:
+      - "'Servers'!A2:G256"
+    credentials_file: "/etc/certpouch/secrets/sheets.json"
+```
+
+先ほどのサンプル行を試す場合は `dns.zone` を `example.internal` とし、個別プレビュー用に `dns.zones.serial: 1` を追加します。次を実行します。この段階では稼働中のゾーンに反映されません。
+
+```sh
+sudo certpouch dns fetch --config /etc/certpouch/server.yaml
+sudo certpouch dns sync --dry-run --config /etc/certpouch/server.yaml
+```
+
+最初のコマンドでホスト件数、次のコマンドで正引きと逆引きの候補を確認します。取得できなければ、APIを有効にしたプロジェクト、サービス アカウントへの共有、ID、タブ名、JSONのパスと権限を順に確認します。複数タブを使う場合は、同じ `ranges` リストに `"'Containers'!A2:G128"` のように1行追加します。
+
+### 4. NSDに反映して証明書を配る
+
+#### 証明書・CAの早見表
+
+CertPouchには、**配布APIへのHTTPS接続を確認する証明書**と、**受け取り先のWebサービスが使う証明書**があります。設定例では、それぞれ次のファイルを指定します。
+
+| ファイル | 何に使うか | 設定する場所 |
+| --- | --- | --- |
+| 配布APIのHTTPS証明書と秘密鍵（例 `server.pem` と `server.key`） | CertPouchのHTTPS配布サーバーが提示する。証明書のSANは、クライアントが接続する `server.url` のホスト名に合わせる | `server.yaml` の `distribution.tls.certificate_file` と `private_key_file` |
+| 配布APIを信頼するCA証明書（例 `server-ca.crt`） | クライアントが接続先の配布APIを検証する | `client.yaml` の `server.ca_file` |
+| 直接発行するCA証明書とCA秘密鍵（例 `issuer.pem` と `issuer.key`） | 既存CAでホスト名や別名ごとの証明書に署名する。クライアントは公開情報であるCA証明書を使い、届いた証明書の直接発行者も検証する | `server.yaml` の `certificates.issuer.certificate_file` と `private_key_file`。CA証明書だけを `client.yaml` の `validation.issuer_certificate` に指定 |
+| 配布証明書を信頼するCAバンドル（例 `roots.pem`） | 発行時とPull時に、サービス用証明書のチェーンが信頼済みCAまでつながるか検証する | `server.yaml` の `certificates.trust_ca_file`、`client.yaml` の `validation.trust_ca_file` |
+| 発行時に添付する中間CAチェーン（例 `chain.pem`） | 署名CAが中間CAなら、その証明書を先頭に上位の中間CA証明書を並べる。ルートCAは含めず、ルートCAが直接署名する場合は省略する | `server.yaml` の `certificates.issuer.chain_file` |
+| ホストや別名ごとのサービス用証明書と秘密鍵 | CertPouchが台帳の名前ごとに発行し、Pull先のWebサービスなどが使用する | `client.yaml` の `certificates[].name` で取得対象を選ぶ。利用サービスには配置先の `current/fullchain.pem` と `current/private-key.pem` を指定 |
+
+たとえば配布APIが `cert-server.example.internal`、利用サービスが `portal.example.internal` なら、前者はクライアントの接続先、後者は取得する証明書名です。双方を同じCAが署名している構成なら、信頼用の公開CAバンドルを共用できます。**CA秘密鍵は同期・発行を行うサーバー側だけ**に置きます。手順3のSheets用JSON鍵は、Google Sheetsにアクセスするための資格情報です。
+
+1. 試験用の値を実運用の値に置き換え、プレビュー用の固定 `serial` を外します。設定例の `dns.nsd`、`certificates`、`distribution` を埋め、[専用NSD includeとディレクトリ](dns-sync.md)を準備します。同じキャッシュを使う場合は、同期ユーザーが所有し、配布ユーザーが読める権限を設定します。
+2. 同期サービスを動かすユーザーで `certpouch pipeline --check --config /etc/certpouch/server.yaml` を実行します。これはローカルの前提確認です。次に `certpouch pipeline --once --config /etc/certpouch/server.yaml` を実行して、NSD反映と証明書発行を確認します。
+3. 初回同期が成功したら、[同期用unit](../configs/systemd/certpouch-pipeline.service)と[配布用unit](../configs/systemd/certpouch-server.service)で常駐させます。受け取り側は [client.yamlの例](../configs/client.example.yaml)を設定し、`certpouch pull --dry-run --config /etc/certpouch/client.yaml` で取得予定を確認します。
+
+以降のホスト追加・変更はSheetsで行います。サーバー側の発行状況は `certpouch cert status --config /etc/certpouch/server.yaml` で確認できます。
+
+## 発行済み証明書を手動で配布する
 
 既存CAで発行済みの証明書を、既存のDNS台帳を使ってLinuxホスト1台へ配布する手順です。配布サーバーと取得ホストは別マシンとし、サーバーには `server.yaml`、取得ホストには `client.yaml` を置きます。以下のドメイン、IP、サービス名、ファイルパスは例です。
 
@@ -17,7 +101,7 @@
 
 配布サーバー自身のTLS用CAと、配布対象の証明書を検証するCAは用途が別です。既存構成で両方に同じCAを使用している場合は同じバンドルを参照できます。
 
-## `init` で初期設定を作る
+### `configure` で初期設定を作る
 
 Linux上で、CAファイル、サーバーのHTTPS証明書と秘密鍵、台帳を先に用意します。以下の `--out` は新規ディレクトリを指定します。親ディレクトリは事前に作成してください。
 
