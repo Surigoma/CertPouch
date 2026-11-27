@@ -111,6 +111,23 @@ zone:
 		t.Fatal(err)
 	}
 	control := nsdCommands{checker: checker, controller: controller, config: conf, address: fmt.Sprintf("127.0.0.1:%d", port)}
+	resolver := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, control.address)
+	}}
+	checkRecords := func(address string) {
+		t.Helper()
+		query, stop := context.WithTimeout(ctx, 3*time.Second)
+		defer stop()
+		const hostname = "svc.example.internal."
+		ips, err := resolver.LookupIP(query, "ip4", hostname)
+		if err != nil || len(ips) != 1 || ips[0].String() != address {
+			t.Fatalf("NSD A record: %v, %v; want %s", ips, err, address)
+		}
+		names, err := resolver.LookupAddr(query, address)
+		if err != nil || len(names) != 1 || names[0] != hostname {
+			t.Fatalf("NSD PTR record: %v, %v; want %s", names, err, hostname)
+		}
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		serial, err := control.ServedSerial(ctx, "example.internal")
@@ -144,6 +161,7 @@ zone:
 			t.Fatalf("NSD served serial for %s: %d, %v", zone, serial, err)
 		}
 	}
+	checkRecords("192.0.2.11")
 	cachePath := filepath.Join(base, "cache.json")
 	if err := os.WriteFile(cachePath, []byte(`{"valueRanges":[{"values":[["","192.0.2","11","svc","","","svc"]]}]}`), 0600); err != nil {
 		t.Fatal(err)
@@ -180,6 +198,7 @@ zones:
 			t.Fatalf("NSD rollback serial for %s: %d, %v", zone, serial, err)
 		}
 	}
+	checkRecords("192.0.2.11")
 	forward, err := os.ReadFile(filepath.Join(managed, "current", "example.internal.zone"))
 	if err != nil || !bytes.Contains(forward, []byte("IN A 192.0.2.11")) || bytes.Contains(forward, []byte("IN A 192.0.2.12")) {
 		t.Fatalf("did not restore the previous forward record: %v", err)

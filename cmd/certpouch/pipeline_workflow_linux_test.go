@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -54,26 +55,40 @@ func TestPipelineSheetsToCertificatePublication(t *testing.T) {
 		return path
 	}
 	bin, stage, zones, store := mkdir("bin"), mkdir("stage"), mkdir("zones"), mkdir("store")
-	t.Setenv("PATH", bin)
 	failCheck := filepath.Join(base, "reject-zones")
 	t.Setenv("CERTPOUCH_TEST_REJECT_ZONES", failCheck)
 	t.Setenv("CERTPOUCH_TEST_ZONE_DIR", zones)
-	write("bin/nsd-checkzone", []byte("#!/bin/sh\n[ ! -f \"$CERTPOUCH_TEST_REJECT_ZONES\" ] && [ -s \"$2\" ]\n"), 0700)
-	write("bin/nsd-control", []byte("#!/bin/sh\n[ \"$3\" = reconfig ] || [ \"$3\" = reload ]\n"), 0700)
-	write("bin/nsd-checkconf", []byte("#!/bin/sh\nif [ \"$1\" = -o ]; then\n  printf '%s/current/%s.zone\\n' \"$CERTPOUCH_TEST_ZONE_DIR\" \"$4\"\nelse\n  [ -f \"$1\" ]\nfi\n"), 0700)
-	listener := pipelineSOAServer(t, zones)
 	cache := filepath.Join(base, "cache.json")
 	include := write("zones.conf", []byte(managedNSDHeader), 0600)
 	nsd := write("nsd.conf", nil, 0600)
+	var listener string
+	if os.Getenv("CERTPOUCH_TEST_NATIVE_PIPELINE") == "1" {
+		checker, err := exec.LookPath("nsd-checkzone")
+		if err != nil {
+			t.Fatal(err)
+		}
+		listener = startPipelineNSD(t, base, nsd, include)
+		t.Setenv("CERTPOUCH_TEST_REAL_CHECKZONE", checker)
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		write("bin/nsd-checkzone", []byte("#!/bin/sh\n[ ! -f \"$CERTPOUCH_TEST_REJECT_ZONES\" ] || exit 1\nexec \"$CERTPOUCH_TEST_REAL_CHECKZONE\" \"$@\"\n"), 0700)
+	} else {
+		t.Setenv("PATH", bin)
+		write("bin/nsd-checkzone", []byte("#!/bin/sh\n[ ! -f \"$CERTPOUCH_TEST_REJECT_ZONES\" ] && [ -s \"$2\" ]\n"), 0700)
+		write("bin/nsd-control", []byte("#!/bin/sh\n[ \"$3\" = reconfig ] || [ \"$3\" = reload ]\n"), 0700)
+		write("bin/nsd-checkconf", []byte("#!/bin/sh\nif [ \"$1\" = -o ]; then\n  printf '%s/current/%s.zone\\n' \"$CERTPOUCH_TEST_ZONE_DIR\" \"$4\"\nelse\n  [ -f \"$1\" ]\nfi\n"), 0700)
+		listener = pipelineSOAServer(t, zones)
+	}
 	material := workflowCertificates(t)
 	ca := write("ca.pem", material.caPEM, 0600)
 	key := write("ca.key", material.caKeyPEM, 0600)
 	listenerCert := write("server.pem", material.listener.cert, 0600)
 	listenerKey := write("server.key", material.listener.key, 0600)
 	credentials := writeTestSheetsCredentials(t, base)
+	tokenHash := write("client.sha256", []byte(strings.Repeat("a", 64)), 0600)
 	path := write("server.yaml", []byte(fmt.Sprintf(`inventory:
   cache_file: %q
   fallback_prefix: "192.0.2"
+  max_age: "1h"
   sheets: {spreadsheet_id: "spreadsheet_test", ranges: ["Inventory!A2:G10"], credentials_file: %q}
 dns:
   zone: example.internal
@@ -97,7 +112,13 @@ certificates:
 distribution:
   listen: "127.0.0.1:8443"
   tls: {certificate_file: %q, private_key_file: %q}
-`, cache, credentials, nsd, include, stage, zones, listener, ca, key, ca, store, listenerCert, listenerKey)), 0600)
+  clients:
+    - id: test
+      enabled: true
+      token_hash_file: %q
+      certificate_access_overrides:
+        web.example.internal: [node.pvt.example.internal]
+`, cache, credentials, nsd, include, stage, zones, listener, ca, key, ca, store, listenerCert, listenerKey, tokenHash)), 0600)
 
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
@@ -116,7 +137,7 @@ distribution:
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
-	run := func(want int, diagnostic string) {
+	run := func(t *testing.T, want int, diagnostic string) {
 		t.Helper()
 		var out, stderr bytes.Buffer
 		args := []string{"--config", path, "--once"}
@@ -141,7 +162,7 @@ distribution:
 		return versions
 	}
 
-	run(0, "")
+	run(t, 0, "")
 	first := publications()
 	if len(first) != 2 || first["web.example.internal"] == "" || first["node.pvt.example.internal"] == "" {
 		t.Fatalf("unexpected initial publications: %v", first)
@@ -156,7 +177,7 @@ distribution:
 	}
 	octet, alias = "11", "portal"
 	write("reject-zones", nil, 0600)
-	run(1, "nsd-checkzone rejected")
+	run(t, 1, "nsd-checkzone rejected")
 	if body, err := os.ReadFile(cache); err != nil || !bytes.Equal(body, initial) {
 		t.Fatalf("unconfirmed snapshot replaced cache: %s, %v", body, err)
 	}
@@ -166,7 +187,7 @@ distribution:
 	if err := os.Remove(failCheck); err != nil {
 		t.Fatal(err)
 	}
-	run(0, "")
+	run(t, 0, "")
 	if current := publications(); len(current) != 2 || current["web.example.internal"] != "" || current["portal.example.internal"] == "" {
 		t.Fatalf("confirmed snapshot did not update publications: %v", current)
 	}
@@ -176,6 +197,39 @@ distribution:
 	}
 	if entries, err := os.ReadDir(stage); err != nil || len(entries) != 0 {
 		t.Fatalf("staged candidates were not cleaned up: %v, %v", entries, err)
+	}
+	if os.Getenv("CERTPOUCH_TEST_NATIVE_PIPELINE") == "1" {
+		t.Run("restart changes reverse zone membership", func(t *testing.T) {
+			original, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const addedZone = "100.51.198.in-addr.arpa"
+			edited := bytes.Replace(original, []byte(`["2.0.192.in-addr.arpa"]`),
+				[]byte(`["2.0.192.in-addr.arpa", "`+addedZone+`"]`), 1)
+			if err := os.WriteFile(path, edited, 0600); err != nil {
+				t.Fatal(err)
+			}
+			run(t, 0, "")
+			endpoint, err := parseNSDEndpoint(listener)
+			if err != nil {
+				t.Fatal(err)
+			}
+			control, err := newNSDCommands(nsd, endpoint)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := control.ServedSerial(t.Context(), addedZone); err != nil {
+				t.Fatalf("added reverse zone did not serve an SOA: %v", err)
+			}
+			if err := os.WriteFile(path, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			run(t, 0, "")
+			if _, err := control.ServedSerial(t.Context(), addedZone); err == nil {
+				t.Fatal("removed reverse zone still serves an SOA")
+			}
+		})
 	}
 
 	t.Run("watch reports failure and stops during retry delay", func(t *testing.T) {
@@ -246,6 +300,67 @@ distribution:
 		}
 		runCommand(fetch, []string{"--config", manual, "--status"}, 1, `"state":"missing"`, &out)
 	})
+}
+
+func startPipelineNSD(t *testing.T, dir, config, include string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`server:
+  ip-address: 127.0.0.1@%d
+  chroot: ""
+  username: ""
+  zonesdir: %q
+  database: ""
+  pidfile: %q
+  zonelistfile: %q
+  xfrdfile: %q
+remote-control:
+  control-enable: yes
+  control-interface: %q
+include: %q
+`, port, dir, filepath.Join(dir, "nsd.pid"), filepath.Join(dir, "zone.list"),
+		filepath.Join(dir, "xfrd.state"), filepath.Join(dir, "control.sock"), include)
+	if err := os.WriteFile(config, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "nsd.log")
+	output, err := os.Create(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	proc := exec.CommandContext(ctx, "nsd", "-d", "-c", config)
+	proc.Stdout, proc.Stderr = output, output
+	if err := proc.Start(); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stopCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		_ = exec.CommandContext(stopCtx, "nsd-control", "-c", config, "stop").Run()
+		cancel()
+		_ = proc.Wait()
+	})
+	wait, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	for wait.Err() == nil {
+		if err := exec.CommandContext(wait, "nsd-control", "-c", config, "status").Run(); err == nil {
+			return fmt.Sprintf("127.0.0.1:%d", port)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	bodyBytes, _ := os.ReadFile(log)
+	t.Fatalf("isolated NSD did not start: %s", bodyBytes)
+	return ""
 }
 
 // Answer SOA requests from the active files to exercise the same TCP confirmation

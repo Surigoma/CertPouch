@@ -203,6 +203,15 @@ func runRenewalTimer(t *testing.T, base, store, server, renewal string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// PrivateTmp hides the Go test runner's usual build directory.
+	image, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(base, "certpouch-test")
+	if err := os.WriteFile(helper, image, 0700); err != nil {
+		t.Fatal(err)
+	}
 	unit := filepath.Base(base)
 	result := filepath.Join(store, ".timer-result")
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
@@ -212,7 +221,7 @@ func runRenewalTimer(t *testing.T, base, store, server, renewal string) {
 		"--property=NoNewPrivileges=true", "--property=ProtectSystem=strict", "--property=ProtectHome=true",
 		"--property=PrivateTmp=true", "--property=ReadWritePaths="+store,
 		"--setenv=CERTPOUCH_RENEW_TEST_SERVER="+server, "--setenv=CERTPOUCH_RENEW_TEST_CONFIG="+renewal,
-		"--setenv=CERTPOUCH_RENEW_TEST_RESULT="+result, executable, "-test.run=^TestRenewalTimerProcess$")
+		"--setenv=CERTPOUCH_RENEW_TEST_RESULT="+result, helper, "-test.run=^TestRenewalTimerProcess$")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("start isolated renewal timer: %v: %s", err, output)
 	}

@@ -22,6 +22,8 @@ GitHub Actionsの `Verify` はmainへのpushとPull Requestで `go vet` とrace�
 2. 同じ台帳を旧Python版とCertPouchに与える。正引きと逆引きのレコードセットを比較し、SOA、NS、TTL、固定レコード、IDNと空欄の扱いを確認する。差異は移行前に説明できるよう記録する。
 3. 現行NSD設定とゾーンは別途退避し、隔離したNSDで候補を検証して適用する。実運用用の削除・置換上限を決め、配信中のSOA serialおよび代表的なA・PTR・固定レコードを確認する。
 
+隔離Linuxで `nsd`、`nsd-control`、`nsd-checkconf`、`nsd-checkzone` をPATHに置き、`CERTPOUCH_TEST_NATIVE_PIPELINE=1 go test -count=1 ./cmd/certpouch -run '^(TestPipelineSheetsToCertificatePublication|TestNativeNSDActivation)$'` を実行する。模擬Sheets応答による初回ゾーン登録、更新、別名の削除と証明書発行を確認できる。実NSDで逆引きゾーンの追加・削除と、切り戻し前後のA・PTR応答も確認する。NSDは一時設定とループバックで起動する。
+
 ## KeycloakとCA、バックアップ
 
 1. 運用と同じサービスユーザー・グループ・ユニットを隔離環境で使い、鍵の読取権限と書込拒否、再起動と旧世代への切り戻しを確認する。
