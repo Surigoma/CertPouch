@@ -145,12 +145,12 @@ func runServer(ctx context.Context, args []string, stderr io.Writer) int {
 	defer stopRefresh()
 	if cfg.InventoryCertificates {
 		go handler.WatchInventoryPublications(refreshContext, min(cfg.PublicationRefresh, cfg.InventoryRefresh), func() ([]distribution.Publication, []distribution.Client, error) {
-			current, err := config.LoadServer(*path)
+			policies, clients, err := cfg.ReloadInventoryPublications()
 			if err != nil {
 				return nil, nil, err
 			}
-			publications, err := storage.Load(current.CertificateDir, current.Policies)
-			return publications, current.Clients, err
+			publications, err := storage.Load(cfg.CertificateDir, policies)
+			return publications, clients, err
 		})
 	} else {
 		if cfg.PublicationRefresh != 0 {

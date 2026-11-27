@@ -76,6 +76,11 @@ func RefreshCacheAfter(ctx context.Context, path string, limit int, fetch func(c
 		return false, fmt.Errorf("stage cache fetch record: %w", err)
 	}
 	defer os.Remove(stagedRecord)
+	commitLock, err := prepareCacheCommitLock(path)
+	if err != nil {
+		return false, fmt.Errorf("prepare DNS cache commit lock: %w", err)
+	}
+	defer commitLock.Close()
 	if err := unchangedCacheFile(path, previous); err != nil {
 		return false, err
 	}
@@ -89,6 +94,9 @@ func RefreshCacheAfter(ctx context.Context, path string, limit int, fetch func(c
 		if err := apply(ctx); err != nil {
 			return false, err
 		}
+	}
+	if err := flockCache(commitLock, syscall.LOCK_EX); err != nil {
+		return false, fmt.Errorf("lock DNS cache for commit: %w", err)
 	}
 	if err := unchangedCacheFile(path, previous); err != nil {
 		return false, err

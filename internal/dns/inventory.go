@@ -54,6 +54,15 @@ func NewInventory(records []Record) (Inventory, error) {
 // AllowedPrefixes returns exact host prefixes for the explicitly named hosts.
 // A missing host rejects the entire assignment.
 func (inventory Inventory) AllowedPrefixes(hosts []string) ([]netip.Prefix, error) {
+	return inventory.allowedPrefixes(hosts, true)
+}
+
+// PresentPrefixes validates every name and returns addresses for names still in the inventory.
+func (inventory Inventory) PresentPrefixes(hosts []string) ([]netip.Prefix, error) {
+	return inventory.allowedPrefixes(hosts, false)
+}
+
+func (inventory Inventory) allowedPrefixes(hosts []string, requireAll bool) ([]netip.Prefix, error) {
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("at least one inventory hostname is required")
 	}
@@ -65,7 +74,7 @@ func (inventory Inventory) AllowedPrefixes(hosts []string) ([]netip.Prefix, erro
 			return nil, fmt.Errorf("invalid allowed inventory hostname")
 		}
 		ips := inventory.addresses[name]
-		if len(ips) == 0 {
+		if requireAll && len(ips) == 0 {
 			return nil, fmt.Errorf("allowed inventory host %s has no A or AAAA records", name)
 		}
 		for _, addr := range ips {

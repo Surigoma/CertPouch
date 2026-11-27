@@ -30,7 +30,7 @@ func runDNSFetch(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return 2
 	}
 	if *status {
-		record, err := config.ReadSheetsCacheStatus(*path, time.Now())
+		record, err := config.ReadSheetsCacheStatus(*path, time.Now)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2

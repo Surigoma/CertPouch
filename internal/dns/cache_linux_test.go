@@ -7,9 +7,74 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+func TestCacheReadWaitsForBothFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.json")
+	recordPath := path + CacheFreshnessSuffix
+	now := time.Now()
+	write := func(path string, data []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record := func(snapshot []byte) []byte {
+		t.Helper()
+		data, err := json.Marshal(newCacheFreshness(snapshot, now))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	old, updated := []byte("old"), []byte("new")
+	write(recordPath, record(old))
+	lock, err := prepareCacheCommitLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := flockCache(lock, syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	write(path, updated)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- WithCacheRead(path, func() error {
+			snapshot, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			record, err := os.ReadFile(recordPath)
+			if err != nil {
+				return err
+			}
+			_, err = VerifyCacheFreshness(snapshot, record, now, time.Minute)
+			return err
+		})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("reader completed between the two writes: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	write(recordPath, record(updated))
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader did not complete after the commit")
+	}
+}
 
 func TestRefreshCacheRejectsUnsafeDestinationsBeforeApply(t *testing.T) {
 	for _, tc := range []struct {

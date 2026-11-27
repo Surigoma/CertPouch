@@ -22,7 +22,7 @@ func TestSheetsCacheStatusWithoutServiceAccount(t *testing.T) {
 	}
 	check := func(want string, at time.Time) {
 		t.Helper()
-		status, err := ReadSheetsCacheStatus(config, at)
+		status, err := ReadSheetsCacheStatus(config, func() time.Time { return at })
 		if err != nil || status.State != want {
 			t.Fatalf("status = %+v, %v; want %q", status, err, want)
 		}

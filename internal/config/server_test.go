@@ -13,6 +13,64 @@ import (
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
 
+func TestInventoryRefreshIsolatesDeletionsAndKeepsStartupCredentials(t *testing.T) {
+	dir := t.TempDir()
+	ca := writeTestIssuer(t)
+	cache, hash, path := filepath.Join(dir, "inventory.json"), filepath.Join(dir, "client.sha256"), filepath.Join(dir, "server.yaml")
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(hash, strings.Repeat("a", 64))
+	write(cache, `{"valueRanges":[{"values":[["","192.0.2","10","web","","","portal"],["","192.0.2","12","backup"]]}]}`)
+	write(path, fmt.Sprintf(`server:
+  listen: "127.0.0.1:8443"
+  tls: {certificate: %q, private_key: %q}
+  publication_refresh: "5s"
+  inventory_refresh: "5s"
+storage: {certificate_dir: %q, trust_ca_file: %q}
+dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: "example.internal"}
+renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_certificate: %q, issuer_private_key: %q}
+clients:
+  - id: test
+    enabled: true
+    token_hash_file: %q
+    certificate_access_overrides:
+      portal.example.internal: [web.pvt.example.internal]
+      web.pvt.example.internal: [backup.pvt.example.internal, WEB.pvt.example.internal.]
+`, ca, hash, dir, ca, cache, ca, filepath.Join(dir, "issuer.key"), hash))
+	cfg, err := LoadServer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(cache, `{"valueRanges":[{"values":[["","192.0.2","11","web"]]}]}`)
+	write(hash, strings.Repeat("b", 64))
+	policies, clients, err := cfg.ReloadInventoryPublications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const remaining = "web.pvt.example.internal"
+	if len(policies) != 1 || len(clients[0].CertificateIPs) != 1 ||
+		len(clients[0].CertificateIPs[remaining]) == 0 || clients[0].TokenHash != cfg.Clients[0].TokenHash {
+		t.Fatalf("unexpected refreshed policies or authorization: %v", clients[0].CertificateIPs)
+	}
+	for _, prefix := range clients[0].CertificateIPs[remaining] {
+		if prefix != netip.MustParsePrefix("192.0.2.11/32") {
+			t.Fatalf("unexpected prefix after refresh: %v", prefix)
+		}
+	}
+	restarted, profiles, err := LoadRenewalInputs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles.Profiles) != 1 || profiles.Profiles[0].Name != remaining ||
+		restarted.Clients[0].TokenHash == cfg.Clients[0].TokenHash {
+		t.Fatal("reloading the configuration did not apply the new credentials and remaining renewal target")
+	}
+}
+
 func TestRenewalProfilesFromInventory(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "inventory.json")
@@ -72,19 +130,19 @@ func TestCertificateSourceRules(t *testing.T) {
 	const web = "web.example.internal"
 	const absent = "absent.example.internal"
 	policies := map[string]pki.Policy{web: {}, absent: {}}
-	client, err := doc.client(policies, &inventory)
+	client, err := doc.client(policies, &inventory, false)
 	want := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}
 	if err != nil || !slices.Equal(client.CertificateIPs[web], want) || len(client.CertificateIPs[absent]) != 0 {
 		t.Fatalf("unexpected default rules: %v, %v", client.CertificateIPs, err)
 	}
 	doc.Overrides = map[string][]string{web: {"backup.example.internal"}}
-	client, err = doc.client(policies, &inventory)
+	client, err = doc.client(policies, &inventory, false)
 	want = append(want, netip.MustParsePrefix("192.0.2.12/32"))
 	if err != nil || !slices.Equal(client.CertificateIPs[web], want) {
 		t.Fatalf("unexpected override rules: %v, %v", client.CertificateIPs, err)
 	}
 	doc.Overrides[web] = []string{"missing.example.internal"}
-	if _, err := doc.client(policies, &inventory); err == nil {
+	if _, err := doc.client(policies, &inventory, false); err == nil {
 		t.Fatal("accepted an override pointing to an unknown host")
 	}
 }
@@ -101,7 +159,7 @@ func TestInventoryAccessModes(t *testing.T) {
 		if mode != "all" {
 			doc.AllowedCertificates = []string{web}
 		}
-		rules, err := doc.inventoryRules(policies, inventory)
+		rules, err := doc.inventoryRules(policies, inventory, false)
 		if err != nil {
 			t.Fatal(err)
 		}

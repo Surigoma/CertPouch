@@ -69,6 +69,29 @@ func testPublication(t *testing.T, now time.Time) Publication {
 	}
 }
 
+func TestCatalogOmitsExpiredPublications(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	valid := testPublication(t, now)
+	expired := testPublication(t, now.Add(-2*time.Minute))
+	expired.Name = "expired.example.internal"
+	publications := []Publication{expired, valid}
+	h, err := newHandler(publications, nil, nil, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.catalog.current[valid.Name].available(now) || h.catalog.current[expired.Name] != nil ||
+		h.catalog.versions[expired.Name][expired.Version] != nil {
+		t.Fatal("catalog did not isolate the expired generation")
+	}
+	if err := CheckPublication(expired, now); err == nil {
+		t.Fatal("accepted a new expired publication")
+	}
+	publications[0].Bundle.PrivateKeyPEM = valid.Bundle.PrivateKeyPEM
+	if _, err := newHandler(publications, nil, nil, func() time.Time { return now }); err == nil {
+		t.Fatal("treated an expired publication with a mismatched key as valid")
+	}
+}
+
 func TestDistributionAPI(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	current := testPublication(t, now)

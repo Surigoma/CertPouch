@@ -7,6 +7,10 @@ import (
 	"fmt"
 )
 
+func WithCacheRead(_ string, read func() error) error {
+	return read()
+}
+
 func RefreshCache(context.Context, string, int, func(context.Context) ([]byte, error)) (bool, error) {
 	return false, fmt.Errorf("DNS cache refresh requires Linux for atomic replacement and permission checks")
 }

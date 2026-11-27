@@ -76,7 +76,7 @@ type SheetsCacheStatus struct {
 }
 
 // ReadSheetsCacheStatus does not load the service account.
-func ReadSheetsCacheStatus(path string, now time.Time) (SheetsCacheStatus, error) {
+func ReadSheetsCacheStatus(path string, now func() time.Time) (SheetsCacheStatus, error) {
 	doc, err := loadSheetsFetchDocument(path)
 	if err != nil {
 		return SheetsCacheStatus{}, err
@@ -86,17 +86,12 @@ func ReadSheetsCacheStatus(path string, now time.Time) (SheetsCacheStatus, error
 		return SheetsCacheStatus{}, err
 	}
 	status := SheetsCacheStatus{State: "invalid", MaxAge: doc.DNSInventory.MaxAge}
-	raw, err := readFile(doc.DNSInventory.CacheFile, false, sheets.MaxSnapshotBytes)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			status.State = "missing"
-		}
-		return status, nil
-	}
-	freshness, err := verifyInventoryCache(doc.DNSInventory.CacheFile, raw, now, age)
+	raw, freshness, err := readInventoryCache(doc.DNSInventory.CacheFile, sheets.MaxSnapshotBytes, now, age, true)
 	switch {
 	case errors.Is(err, dns.ErrStaleCache):
 		status.State, status.FetchedAt = "stale", &freshness.FetchedAt
+	case errors.Is(err, os.ErrNotExist) && raw == nil:
+		status.State = "missing"
 	case errors.Is(err, os.ErrNotExist):
 		status.State = "untracked"
 	case err == nil:

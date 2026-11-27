@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"time"
 
@@ -63,19 +64,30 @@ type catalog struct {
 	versions map[string]map[string]*generation
 }
 
-func buildCatalog(publications []Publication, now time.Time) (catalog, error) {
+func buildCatalog(publications []Publication, now time.Time, logger *slog.Logger) (catalog, error) {
 	c := catalog{current: make(map[string]*generation), versions: make(map[string]map[string]*generation)}
 	for _, publication := range publications {
 		name, version := publication.Name, publication.Version
 		if !namePattern.MatchString(name) || !versionPattern.MatchString(version) {
 			return catalog{}, fmt.Errorf("invalid publication name or version")
 		}
-		if c.versions[name][version] != nil || (publication.Current && c.current[name] != nil) {
+		_, duplicateVersion := c.versions[name][version]
+		_, duplicateCurrent := c.current[name]
+		if duplicateVersion || (publication.Current && duplicateCurrent) {
 			return catalog{}, fmt.Errorf("duplicate publication version or current generation")
 		}
 		entry, err := buildGeneration(publication, now)
 		if err != nil {
-			return catalog{}, fmt.Errorf("validate publication %s: %w", name, err)
+			leaf, parseErr := pki.DescribeLeaf(publication.Bundle.CertificatePEM)
+			if parseErr != nil || now.Before(leaf.Leaf.NotAfter) {
+				return catalog{}, fmt.Errorf("validate publication %s: %w", name, err)
+			}
+			// Verify all other publication requirements before accepting expiry
+			// as the reason to leave this generation out of distribution.
+			if _, err := buildGeneration(publication, leaf.Leaf.NotAfter.Add(-time.Nanosecond)); err != nil {
+				return catalog{}, fmt.Errorf("validate expired publication %s: %w", name, err)
+			}
+			logger.Warn("expired certificate publication omitted", "certificate_name", name, "version", version)
 		}
 		if c.versions[name] == nil {
 			c.versions[name] = make(map[string]*generation)

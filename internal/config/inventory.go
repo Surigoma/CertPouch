@@ -35,18 +35,12 @@ func (doc inventoryDocument) loadWithExpiry(expires *time.Time) (dns.Inventory, 
 		if !filepath.IsAbs(doc.CacheFile) {
 			return dns.Inventory{}, fmt.Errorf("dns_inventory.cache_file must be absolute")
 		}
-		raw, err := readFile(doc.CacheFile, false, maxInventoryBytes)
+		raw, freshness, err := readInventoryCache(doc.CacheFile, maxInventoryBytes, time.Now, maxAge, maxAge != 0)
 		if err != nil {
-			return dns.Inventory{}, fmt.Errorf("read DNS cache: %w", err)
+			return dns.Inventory{}, err
 		}
-		if maxAge != 0 {
-			state, err := verifyInventoryCache(doc.CacheFile, raw, time.Now(), maxAge)
-			if err != nil {
-				return dns.Inventory{}, err
-			}
-			if expires != nil {
-				*expires = state.FetchedAt.Add(maxAge)
-			}
+		if maxAge != 0 && expires != nil {
+			*expires = freshness.FetchedAt.Add(maxAge)
 		}
 		return dns.ReadLegacyCache(bytes.NewReader(raw), doc.FallbackPrefix, doc.Zone)
 	}
@@ -79,10 +73,30 @@ func (doc inventoryDocument) freshnessMaxAge() (time.Duration, error) {
 	return maxAge, nil
 }
 
-func verifyInventoryCache(path string, raw []byte, now time.Time, maxAge time.Duration) (dns.CacheFreshness, error) {
-	record, err := readFile(path+dns.CacheFreshnessSuffix, false, 4096)
-	if err != nil {
-		return dns.CacheFreshness{}, fmt.Errorf("read DNS cache fetch record: %w", err)
+func readInventoryCache(path string, limit int64, now func() time.Time, maxAge time.Duration, verify bool) ([]byte, dns.CacheFreshness, error) {
+	var raw []byte
+	var freshness dns.CacheFreshness
+	read := func() error {
+		var err error
+		raw, err = readFile(path, false, limit)
+		if err != nil {
+			return fmt.Errorf("read DNS cache: %w", err)
+		}
+		if !verify {
+			return nil
+		}
+		record, err := readFile(path+dns.CacheFreshnessSuffix, false, 4096)
+		if err != nil {
+			return fmt.Errorf("read DNS cache fetch record: %w", err)
+		}
+		freshness, err = dns.VerifyCacheFreshness(raw, record, now(), maxAge)
+		return err
 	}
-	return dns.VerifyCacheFreshness(raw, record, now, maxAge)
+	var err error
+	if verify {
+		err = dns.WithCacheRead(path, read)
+	} else {
+		err = read()
+	}
+	return raw, freshness, err
 }

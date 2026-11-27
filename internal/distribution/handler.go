@@ -55,12 +55,12 @@ func newHandler(publications []Publication, clients []Client, logger *slog.Logge
 }
 
 func buildHandler(publications []Publication, clients []Client, logger *slog.Logger, now func() time.Time, revocations *RevocationPolicy) (*Handler, error) {
-	c, err := buildCatalog(publications, now())
-	if err != nil {
-		return nil, err
-	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+	c, err := buildCatalog(publications, now(), logger)
+	if err != nil {
+		return nil, err
 	}
 	return (&Handler{catalog: c, logger: logger, now: now, revocations: revocations}).WithClients(clients)
 }
