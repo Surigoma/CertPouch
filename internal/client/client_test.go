@@ -120,6 +120,35 @@ func TestIPAuthenticationOverHTTPS(t *testing.T) {
 	}
 }
 
+func TestIPAuthenticationWithoutClientID(t *testing.T) {
+	handler, err := distribution.NewHandler(nil, []distribution.Client{{
+		Enabled: true, Auth: distribution.AuthIP, Implicit: true,
+		CertificateIPs: map[string][]netip.Prefix{"web.example.internal": {netip.MustParsePrefix("127.0.0.1/32")}},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawID bool
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawID = r.Header["X-Certpouch-Client-Id"]
+		handler.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	c, err := NewWithAuthentication(srv.URL, "", "", roots, nil, distribution.AuthIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseIdleConnections()
+	if _, err := c.Inventory(t.Context()); err != nil || sawID {
+		t.Fatalf("inventory without a client ID: err=%v, sent ID header=%v", err, sawID)
+	}
+	if _, err := NewWithAuthentication(srv.URL, "", strings.Repeat("A", 43), roots, nil, distribution.AuthToken); err == nil {
+		t.Fatal("accepted a token client without an ID")
+	}
+}
+
 func TestMTLSAuthenticationWithoutToken(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

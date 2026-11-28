@@ -26,7 +26,7 @@ func TestInventoryRefreshIsolatesDeletionsAndKeepsStartupCredentials(t *testing.
 	}
 	write(hash, strings.Repeat("a", 64))
 	write(cache, `{"valueRanges":[{"values":[["","192.0.2","10","web","","","portal"],["","192.0.2","12","backup"]]}]}`)
-	write(path, fmt.Sprintf(`inventory: {cache_file: %q, fallback_prefix: "192.0.2"}
+	body := fmt.Sprintf(`inventory: {cache_file: %q, fallback_prefix: "192.0.2"}
 dns: {zone: "example.internal"}
 certificates:
   store_dir: %q
@@ -50,10 +50,16 @@ distribution:
       enabled: true
       inventory_access: ip_and_names
       allowed_certificates: [web.pvt.example.internal, portal.example.internal]
-`, cache, dir, ca, ca, filepath.Join(dir, "issuer.key"), ca, hash, hash))
+`, cache, dir, ca, ca, filepath.Join(dir, "issuer.key"), ca, hash, hash)
+	write(path, body)
 	cfg, err := LoadServer(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(cfg.Clients) != 3 || !cfg.Clients[2].Implicit || cfg.Clients[2].ID != "" ||
+		!slices.Equal(cfg.Clients[2].CertificateIPs["portal.example.internal"], []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}) ||
+		!slices.Equal(cfg.Clients[2].CertificateIPs["backup.pvt.example.internal"], []netip.Prefix{netip.MustParsePrefix("192.0.2.12/32")}) {
+		t.Fatalf("auth ip with an inventory did not add the implicit inventory IP client: %+v", cfg.Clients)
 	}
 	write(cache, `{"valueRanges":[{"values":[["","192.0.2","11","web"]]}]}`)
 	write(hash, strings.Repeat("b", 64))
@@ -76,6 +82,23 @@ distribution:
 			t.Fatalf("unexpected prefix after refresh: %v", prefix)
 		}
 	}
+	if len(clients) != 3 || !clients[2].Implicit || len(clients[2].CertificateIPs) != 1 ||
+		!slices.Equal(clients[2].CertificateIPs[remaining], []netip.Prefix{netip.MustParsePrefix("192.0.2.11/32")}) {
+		t.Fatalf("inventory refresh did not rebuild the implicit inventory IP client: %+v", clients)
+	}
+	// With the default token authentication, unregistered hosts get no access.
+	write(path, strings.Replace(strings.Replace(body, "  auth: ip\n", "", 1),
+		"    - id: address-only\n", "    - id: address-only\n      auth: ip\n", 1))
+	tokenDefault, err := LoadServer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, client := range tokenDefault.Clients {
+		if client.Implicit {
+			t.Fatal("added an implicit inventory IP client without distribution.auth ip")
+		}
+	}
+	write(path, body)
 	restarted, profiles, err := LoadRenewalInputs(path)
 	if err != nil {
 		t.Fatal(err)

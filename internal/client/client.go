@@ -52,7 +52,8 @@ func NewWithAuthentication(origin, id, token string, roots *x509.CertPool, certi
 		u.ForceQuery || strings.Contains(origin, "#") {
 		return nil, fmt.Errorf("expected an HTTPS server origin")
 	}
-	if roots == nil || !namePattern.MatchString(id) || !auth.Valid() {
+	// An ip client may omit its ID and rely on the server's inventory IP match.
+	if roots == nil || !auth.Valid() || !(namePattern.MatchString(id) || (id == "" && auth == distribution.AuthIP)) {
 		return nil, fmt.Errorf("invalid client configuration")
 	}
 	if auth.UsesToken() {
@@ -175,7 +176,9 @@ func (c *Client) get(ctx context.Context, path, query string, target any) error 
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	req.Header.Set("X-CertPouch-Client-ID", c.id)
+	if c.id != "" {
+		req.Header.Set("X-CertPouch-Client-ID", c.id)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("distribution HTTPS request: %w", err)
