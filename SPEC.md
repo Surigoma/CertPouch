@@ -94,6 +94,6 @@ CertPouch generates forward and IPv4 reverse candidates from inventory and confi
 
 Local verification uses Go tests and vet, with race testing for shared state. Integration tests use generated test CAs and isolated services. Before migrating an existing deployment, verify the real inventory, NSD configuration, service permissions, CA protection, and backup recovery using the [acceptance guide](docs/release-and-acceptance.md).
 
-GitHub Actions verifies the code. Release Please maintains a release PR, creates a tag and draft release after that PR is merged, and the workflow attaches verified Linux amd64 and arm64 archives and checksums. The draft is published manually.
+GitHub Actions verifies the code. Release Please maintains a release PR and creates a tag and draft release after that PR is merged. The workflow verifies and attaches the Linux amd64 and arm64 archives and checksums before publishing the stable release. Manual rebuilds of existing drafts leave their publication state unchanged.
 
 Brand source assets, generated PNGs, and the MIT license are documented in the [brand specification](docs/SPEC/07-brand.md).

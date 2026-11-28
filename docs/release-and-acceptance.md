@@ -17,9 +17,9 @@ GitHub Actionsの `Verify` はmainへのpushとPull Requestで `task verify` と
 
 1. mainへのpushを受け、Release PleaseがConventional CommitsからバージョンとCHANGELOGを更新するリリースPRを作成する。初回の候補は `v0.1.0`。
 2. リリースPRをマージすると、Release PleaseがタグとGitHub Releaseの下書きを作成する。同じワークフローがタグのコミットを検証・梱包し、2種類のアーカイブと `SHA256SUMS` を下書きに添付する。
-3. ワークフローが成功し、成果物3点、リリースノート、隔離環境の受け入れ結果を確認してから下書きを手動で公開する。
+3. 検証と添付が成功し、配布物3点がそろった時点でワークフローが安定版を公開する。リリースノートと受け入れ結果は、リリースPRをマージする前に確認する。公開前に処理が失敗した場合は下書きが残る。
 
-`Release` の手動実行では、`release_tag` を空にするとワークフローの成果物だけを生成する。既存の下書きのタグを `v0.1.0` のように入力すると、そのコミットから作り直した成果物を下書きに添付できる。公開済みのReleaseには添付しない。
+`Release` の手動実行では、`release_tag` を空にするとワークフローの成果物だけを生成する。既存の下書きのタグを `v0.1.0` のように入力すると、そのコミットから作り直した成果物を下書きに添付できる。手動で再梱包した下書きは、成果物を確認してから公開する。
 
 リリースPRを作成するには、リポジトリの Settings → Actions → General で **Allow GitHub Actions to create and approve pull requests** を有効にする。組み込みの `GITHUB_TOKEN` を使うため、リリースPRで必須チェックが待機する場合はGitHub上で実行を承認するか、リポジトリのCI運用に合わせて起動方法を設定する。[Release Pleaseの権限とCI](https://github.com/googleapis/release-please-action#github-credentials)
 
