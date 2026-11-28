@@ -23,7 +23,7 @@
 | T15 | DNS | 正引き・逆引き、serial境界、無変更、取得失敗、checkzone失敗、reload失敗を確認 |
 | T16 | 発行 | SAN、鍵、期限、チェーン、serial、更新閾値、発行失敗時の旧世代維持を確認 |
 
-Goコード導入後は`gofmt`、`go test ./...`、`go vet ./...`を実行する。並行処理の試験は対応環境で`go test -race ./...`を実行する。NSD/systemd連携はLinuxの隔離環境で検証し、モックだけで実環境対応済みとはしない。
+Goコードを変更したら `gofmt` を実行する。`task test` は `go test ./...`、`task verify` は `go vet ./...` と `go test -race ./...` を実行する。raceテストは対応環境で実施する。NSD/systemd連携はLinuxの隔離環境で検証し、モックだけで実環境対応済みとはしない。
 
 ## 証明書配布の受け入れシナリオ
 
