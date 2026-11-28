@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/Surigoma/CertPouch/compare/v2.1.0...v2.2.0) (2026-11-28)
+
+
+### Features
+
+* let unregistered inventory hosts pull with ip auth ([98f1d32](https://github.com/Surigoma/CertPouch/commit/98f1d32b496f2e91cec9ca5b1acd1b46c2fc8cd3))
+* let unregistered inventory hosts pull with ip auth ([4dba047](https://github.com/Surigoma/CertPouch/commit/4dba04770fdb0b355b04ecf7f02d7f705fe3dc72))
+
 ## [2.1.0](https://github.com/Surigoma/CertPouch/compare/v2.0.1...v2.1.0) (2026-11-28)
 
 
