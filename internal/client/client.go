@@ -42,18 +42,30 @@ func New(origin, id, token string, roots *x509.CertPool) (*Client, error) {
 }
 
 func NewWithCertificate(origin, id, token string, roots *x509.CertPool, certificate *tls.Certificate) (*Client, error) {
+	return NewWithAuthentication(origin, id, token, roots, certificate, distribution.AuthToken)
+}
+
+func NewWithAuthentication(origin, id, token string, roots *x509.CertPool, certificate *tls.Certificate, auth distribution.AuthMode) (*Client, error) {
 	u, err := url.Parse(origin)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
 		(u.EscapedPath() != "" && u.EscapedPath() != "/") || u.RawQuery != "" ||
 		u.ForceQuery || strings.Contains(origin, "#") {
 		return nil, fmt.Errorf("expected an HTTPS server origin")
 	}
-	if roots == nil || !namePattern.MatchString(id) || len(token) > 1024 || strings.ContainsAny(token, "\r\n") {
+	if roots == nil || !namePattern.MatchString(id) || !auth.Valid() {
 		return nil, fmt.Errorf("invalid client configuration")
 	}
-	raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
-	if err != nil || len(raw) < 32 {
-		return nil, fmt.Errorf("invalid client token")
+	if auth.UsesToken() {
+		if len(token) > 1024 || strings.ContainsAny(token, "\r\n") {
+			return nil, fmt.Errorf("invalid client token")
+		}
+		raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
+		if err != nil || len(raw) < 32 {
+			return nil, fmt.Errorf("invalid client token")
+		}
+	} else if token != "" || (auth == distribution.AuthIP && certificate != nil) ||
+		(auth == distribution.AuthMTLS && certificate == nil) {
+		return nil, fmt.Errorf("invalid credentials for auth %s", auth)
 	}
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots.Clone()},
@@ -160,7 +172,9 @@ func (c *Client) get(ctx context.Context, path, query string, target any) error 
 	if err != nil {
 		return fmt.Errorf("create distribution request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	req.Header.Set("X-CertPouch-Client-ID", c.id)
 	resp, err := c.http.Do(req)
 	if err != nil {

@@ -61,6 +61,8 @@ certificates:
 
 # 4. Distribution: the HTTPS API that pull clients use.
 distribution:
+  # Default for all clients. Each client can override this with its own auth.
+  auth: "token"
   listen: "192.0.2.53:8443"
   refresh_interval: "5s"
   tls:
@@ -73,6 +75,8 @@ distribution:
   clients:
     - id: "web-server-01"
       enabled: true
+      # auth: "ip" # Uses exact source IP matching. Omit token_hash_file.
+      # auth: "mtls" # Needs tls.client_ca and a fingerprint. Omit token_hash_file.
       token_hash_file: "/etc/certpouch/tokens/web-server-01.sha256"
       # With mTLS, one or more lowercase SHA-256 leaf fingerprints:
       # client_certificate_sha256: ["<64 lowercase hex digits>"]

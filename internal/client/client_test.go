@@ -3,13 +3,19 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -88,5 +94,73 @@ func TestInventoryAndDownloadGuards(t *testing.T) {
 				t.Fatalf("expected safe %q error, got %v", tc.want, err)
 			}
 		})
+	}
+}
+
+func TestIPAuthenticationOverHTTPS(t *testing.T) {
+	handler, err := distribution.NewHandler(nil, []distribution.Client{{
+		ID: "ip-client", Enabled: true, Auth: distribution.AuthIP,
+		AllowedIPs:          []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
+		AllowedCertificates: []string{"web.example.internal"},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewTLSServer(handler)
+	defer srv.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	c, err := NewWithAuthentication(srv.URL, "ip-client", "", roots, nil, distribution.AuthIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseIdleConnections()
+	if _, err := c.Inventory(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMTLSAuthenticationWithoutToken(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1), NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRoots := x509.NewCertPool()
+	clientRoots.AddCert(certificate)
+	handler, err := distribution.NewHandler(nil, []distribution.Client{{
+		ID: "mtls-client", Enabled: true, Auth: distribution.AuthMTLS,
+		AllowedIPs:              []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
+		ClientCertificateHashes: [][sha256.Size]byte{sha256.Sum256(der)},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(handler)
+	srv.TLS = &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientRoots}
+	srv.StartTLS()
+	defer srv.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	pair := &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	c, err := NewWithAuthentication(srv.URL, "mtls-client", "", roots, pair, distribution.AuthMTLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseIdleConnections()
+	if _, err := c.Inventory(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 }

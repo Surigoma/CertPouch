@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Surigoma/CertPouch/internal/distribution"
 	"github.com/Surigoma/CertPouch/internal/dns"
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
@@ -34,15 +35,21 @@ certificates:
   validity: "720h"
   renew_before: "168h"
 distribution:
+  auth: ip
   listen: "127.0.0.1:8443"
   tls: {certificate_file: %q, private_key_file: %q}
   clients:
     - id: test
       enabled: true
+      auth: token
       token_hash_file: %q
       certificate_access_overrides:
         portal.example.internal: [web.pvt.example.internal]
         web.pvt.example.internal: [backup.pvt.example.internal, WEB.pvt.example.internal.]
+    - id: address-only
+      enabled: true
+      inventory_access: ip_and_names
+      allowed_certificates: [web.pvt.example.internal, portal.example.internal]
 `, cache, dir, ca, ca, filepath.Join(dir, "issuer.key"), ca, hash, hash))
 	cfg, err := LoadServer(path)
 	if err != nil {
@@ -58,6 +65,11 @@ distribution:
 	if len(policies) != 1 || len(clients[0].CertificateIPs) != 1 ||
 		len(clients[0].CertificateIPs[remaining]) == 0 || clients[0].TokenHash != cfg.Clients[0].TokenHash {
 		t.Fatalf("unexpected refreshed policies or authorization: %v", clients[0].CertificateIPs)
+	}
+	if clients[0].Auth != distribution.AuthToken || clients[1].Auth != distribution.AuthIP ||
+		len(clients[1].CertificateIPs) != 1 ||
+		!slices.Equal(clients[1].CertificateIPs[remaining], []netip.Prefix{netip.MustParsePrefix("192.0.2.11/32")}) {
+		t.Fatal("inventory refresh did not preserve the authentication override and updated IP rule")
 	}
 	for _, prefix := range clients[0].CertificateIPs[remaining] {
 		if prefix != netip.MustParsePrefix("192.0.2.11/32") {
@@ -261,10 +273,19 @@ certificates:
   trust_ca_file: %q
 `, ca, key, dir, ca)
 	const first = "    - {name: web.example.internal, issuer_certificate: %q}\n"
+	ipClients := func(entry string) string {
+		return strings.Replace(body, "certificates:\n", "  auth: ip\n  clients:\n    - {id: node, enabled: true, "+entry+"}\ncertificates:\n", 1)
+	}
 	tests := []struct {
 		name, config, want string
 	}{
 		{"invalid listen port", strings.Replace(body, "8443", "0", 1), "distribution.listen must contain a valid host and port"},
+		{"unknown default auth", strings.Replace(body, "  tls:", "  auth: unknown\n  tls:", 1), "distribution.auth must be token, mtls, or ip"},
+		{"mtls without client CA", strings.Replace(body, "  tls:", "  auth: mtls\n  tls:", 1), "requires distribution.tls.client_ca"},
+		{"IP auth with token hash", ipClients("token_hash_file: /key"), "token_hash_file is incompatible with auth ip"},
+		{"IP auth with a subnet", ipClients("allowed_ips: [192.0.2.0/24], allowed_certificates: [web.example.internal]") +
+			"  targets:\n" + fmt.Sprintf(first, ca), "requires exact source IPs"},
+		{"IP auth without certificate assignments", ipClients("allowed_ips: [192.0.2.10]"), "requires allowed_ips and allowed_certificates"},
 		{"relative private key", strings.Replace(body, fmt.Sprintf("%q", key), "listener.key", 1), "distribution.tls.private_key_file must be an absolute path"},
 		{"relative store", strings.Replace(body, fmt.Sprintf("store_dir: %q", dir), "store_dir: store", 1), "certificates.store_dir must be an absolute path"},
 		{"missing private key", strings.Replace(body, fmt.Sprintf("%q", key), fmt.Sprintf("%q", filepath.Join(dir, "missing")), 1), "check distribution.tls.private_key_file"},

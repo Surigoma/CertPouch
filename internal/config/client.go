@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Surigoma/CertPouch/internal/distribution"
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
 
 type Client struct {
 	URL            string
 	ID             string
+	Auth           distribution.AuthMode
 	Token          string
 	TLSRoots       *x509.CertPool
 	TLSCertificate *tls.Certificate
@@ -41,11 +43,12 @@ type pullDocument struct {
 		CAFile string `yaml:"ca_file"`
 	} `yaml:"server"`
 	Client struct {
-		ID             string `yaml:"id"`
-		TokenFile      string `yaml:"token_file"`
-		StateDir       string `yaml:"state_dir"`
-		TLSCertificate string `yaml:"tls_certificate"`
-		TLSPrivateKey  string `yaml:"tls_private_key"`
+		ID             string                `yaml:"id"`
+		Auth           distribution.AuthMode `yaml:"auth"`
+		TokenFile      string                `yaml:"token_file"`
+		StateDir       string                `yaml:"state_dir"`
+		TLSCertificate string                `yaml:"tls_certificate"`
+		TLSPrivateKey  string                `yaml:"tls_private_key"`
 	} `yaml:"client"`
 	Validation struct {
 		TrustCAFile string `yaml:"trust_ca_file"`
@@ -106,21 +109,34 @@ func loadClient(path string, network bool) (Client, error) {
 	if err != nil {
 		return Client{}, fmt.Errorf("load certificate validation CA: %w", err)
 	}
-	result := Client{URL: doc.Server.URL, ID: doc.Client.ID}
+	auth := doc.Client.Auth
+	if !auth.Valid() {
+		return Client{}, fmt.Errorf("client.auth must be token, mtls, or ip")
+	}
+	if !auth.UsesToken() && doc.Client.TokenFile != "" {
+		return Client{}, fmt.Errorf("client.token_file is incompatible with auth %s", auth)
+	}
+	hasCertificate := doc.Client.TLSCertificate != "" || doc.Client.TLSPrivateKey != ""
+	if auth == distribution.AuthIP && hasCertificate {
+		return Client{}, fmt.Errorf("client.auth ip is incompatible with client TLS credentials")
+	}
+	result := Client{URL: doc.Server.URL, ID: doc.Client.ID, Auth: auth}
 	if network {
-		if !filepath.IsAbs(doc.Server.CAFile) || !filepath.IsAbs(doc.Client.TokenFile) {
+		if !filepath.IsAbs(doc.Server.CAFile) || (auth.UsesToken() && !filepath.IsAbs(doc.Client.TokenFile)) {
 			return Client{}, fmt.Errorf("TLS CA and token paths must be absolute")
 		}
 		result.TLSRoots, err = loadClientRoots(doc.Server.CAFile)
 		if err != nil {
 			return Client{}, fmt.Errorf("load TLS CA: %w", err)
 		}
-		token, err := readFile(doc.Client.TokenFile, true, 1026)
-		if err != nil {
-			return Client{}, fmt.Errorf("read client token file: %w", err)
+		if auth.UsesToken() {
+			token, err := readFile(doc.Client.TokenFile, true, 1026)
+			if err != nil {
+				return Client{}, fmt.Errorf("read client token file: %w", err)
+			}
+			result.Token = strings.TrimSuffix(strings.TrimSuffix(string(token), "\n"), "\r")
 		}
-		result.Token = strings.TrimSuffix(strings.TrimSuffix(string(token), "\n"), "\r")
-		if doc.Client.TLSCertificate != "" || doc.Client.TLSPrivateKey != "" {
+		if hasCertificate || auth == distribution.AuthMTLS {
 			result.TLSCertificate, err = loadTLSClientCertificate(doc.Client.TLSCertificate, doc.Client.TLSPrivateKey)
 			if err != nil {
 				return Client{}, err

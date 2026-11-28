@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Surigoma/CertPouch/internal/distribution"
 )
 
 func TestLoadClientDeployment(t *testing.T) {
@@ -63,6 +65,16 @@ certificates:
 	local, err := LoadLocalClient(path)
 	if err != nil || len(local.Targets) != 1 || local.Targets[0].StateFile != target.StateFile {
 		t.Fatalf("local status cannot find the deployment state: %+v, %v", local.Targets, err)
+	}
+	ipConfig := strings.Replace(base, fmt.Sprintf("token_file: %q", token), "auth: ip", 1)
+	writeConfig(t, ipConfig)
+	ipClient, err := LoadClient(path)
+	if err != nil || ipClient.Auth != distribution.AuthIP || ipClient.Token != "" {
+		t.Fatalf("IP client configuration: %v", err)
+	}
+	writeConfig(t, strings.Replace(ipConfig, "auth: ip", "auth: mtls", 1))
+	if _, err := LoadClient(path); err == nil || !strings.Contains(err.Error(), "requires absolute client.tls_certificate") {
+		t.Fatalf("mTLS configuration without credentials: %v", err)
 	}
 
 	for _, tc := range []struct {

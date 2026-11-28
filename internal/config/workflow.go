@@ -45,6 +45,7 @@ type workflowDocument struct {
 		Targets     []targetDocument `yaml:"targets"`
 	} `yaml:"certificates"`
 	Distribution struct {
+		Auth              string `yaml:"auth"`
 		Listen            string `yaml:"listen"`
 		RefreshInterval   string `yaml:"refresh_interval"`
 		RevocationFile    string `yaml:"revocation_file"`
@@ -142,6 +143,7 @@ func decodeServer(body []byte) (serverDocument, error) {
 	doc.Storage.TrustCAFile = cert.TrustCAFile
 	doc.Storage.IssuerFile = cert.Issuer.CertificateFile
 	distribution := input.Distribution
+	doc.Server.Auth = distribution.Auth
 	doc.Server.Listen = distribution.Listen
 	doc.Server.TLS.Certificate = distribution.TLS.CertificateFile
 	doc.Server.TLS.PrivateKey = distribution.TLS.PrivateKeyFile

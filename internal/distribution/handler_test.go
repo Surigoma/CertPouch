@@ -92,6 +92,62 @@ func TestCatalogOmitsExpiredPublications(t *testing.T) {
 	}
 }
 
+func TestTokenlessDistributionAuthentication(t *testing.T) {
+	now := time.Now()
+	publication := testPublication(t, now)
+	peer := &x509.Certificate{Raw: []byte("verified test peer")}
+	source := netip.MustParsePrefix("192.0.2.10/32")
+	ipClient := Client{ID: "ip-client", Enabled: true, Auth: AuthIP,
+		CertificateIPs: map[string][]netip.Prefix{publication.Name: {source}}}
+	mtlsClient := Client{ID: "mtls-client", Enabled: true, Auth: AuthMTLS,
+		CertificateIPs: ipClient.CertificateIPs, ClientCertificateHashes: [][sha256.Size]byte{sha256.Sum256(peer.Raw)}}
+	h, err := newHandler([]Publication{publication}, []Client{ipClient, mtlsClient}, nil, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/certificates/" + publication.Name + "/download?version=" + publication.Version
+	for _, tc := range []struct {
+		name, id, remote string
+		peer             *x509.Certificate
+		verified         bool
+		bearer           bool
+		want             int
+	}{
+		{"exact IP", ipClient.ID, "192.0.2.10:1234", nil, false, false, http.StatusOK},
+		{"wrong IP with forwarded correct IP", ipClient.ID, "192.0.2.11:1234", nil, false, false, http.StatusUnauthorized},
+		{"unexpected token", ipClient.ID, "192.0.2.10:1234", nil, false, true, http.StatusUnauthorized},
+		{"verified mTLS", mtlsClient.ID, "192.0.2.10:1234", peer, true, false, http.StatusOK},
+		{"mTLS without verified chain", mtlsClient.ID, "192.0.2.10:1234", peer, false, false, http.StatusUnauthorized},
+		{"mTLS with different fingerprint", mtlsClient.ID, "192.0.2.10:1234", &x509.Certificate{Raw: []byte("different")}, true, false, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, path, nil)
+			r.RemoteAddr = tc.remote
+			r.TLS = &tls.ConnectionState{}
+			if tc.peer != nil {
+				r.TLS.PeerCertificates = []*x509.Certificate{tc.peer}
+			}
+			if tc.verified {
+				r.TLS.VerifiedChains = [][]*x509.Certificate{{tc.peer}}
+			}
+			r.Header.Set("X-CertPouch-Client-ID", tc.id)
+			r.Header.Set("X-Forwarded-For", "192.0.2.10")
+			if tc.bearer {
+				r.Header.Set("Authorization", "Bearer "+strings.Repeat("A", 43))
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d", w.Code, tc.want)
+			}
+		})
+	}
+	ipClient.CertificateIPs = map[string][]netip.Prefix{publication.Name: {netip.MustParsePrefix("0.0.0.0/0")}}
+	if _, err := h.WithClients([]Client{ipClient}); err == nil {
+		t.Fatal("accepted a wildcard source for IP authentication")
+	}
+}
+
 func TestDistributionAPI(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	current := testPublication(t, now)
