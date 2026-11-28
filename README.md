@@ -67,6 +67,7 @@ The automated workflow uses a single `server.yaml`. [DNS zone generation and act
 
 - [Current implementation specification](SPEC.md)
 - [Detailed specifications (Japanese)](docs/SPEC/README.md)
+- [Build, test, and package with Task (Japanese)](docs/release-and-acceptance.md#リリース候補)
 - [DNS inventory example (Japanese)](docs/dns-inventory.md#台帳の記入例)
 - [Mutual TLS configuration (Japanese)](docs/mtls.md)
 - [MIT License](LICENSE)

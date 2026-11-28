@@ -1,0 +1,49 @@
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  build:
+    desc: Build CertPouch for the current platform
+    env:
+      CERTPOUCH_BUILD_OUTPUT: '{{if .BUILD_OUTPUT}}{{.BUILD_OUTPUT}}{{else}}dist/certpouch{{if eq OS "windows"}}.exe{{end}}{{end}}'
+    cmds:
+      - go build -trimpath -o "$CERTPOUCH_BUILD_OUTPUT" ./cmd/certpouch
+
+  test:
+    desc: Run Go tests
+    cmds:
+      - go test ./...
+
+  verify:
+    desc: Run go vet and Go tests with the race detector
+    cmds:
+      - go vet ./...
+      - go test -race ./...
+
+  test:installer:
+    desc: Test the Linux installer and uninstaller
+    cmds:
+      - bash scripts/install_test.sh
+
+  release:package:
+    desc: Package Linux amd64 and arm64 archives and SHA256SUMS
+    env:
+      CERTPOUCH_OUTPUT_DIR: '{{.OUTPUT_DIR | default "dist"}}'
+      CERTPOUCH_RELEASE_VERSION: '{{.RELEASE_VERSION | default "dev"}}'
+    cmds:
+      - bash scripts/package-release.sh "$CERTPOUCH_OUTPUT_DIR" "$CERTPOUCH_RELEASE_VERSION"
+
+  release:verify:
+    desc: Verify release archives against the expected commit and version
+    vars:
+      GIT_HEAD:
+        sh: git rev-parse HEAD
+    env:
+      CERTPOUCH_OUTPUT_DIR: '{{.OUTPUT_DIR | default "dist"}}'
+      CERTPOUCH_RELEASE_VERSION: '{{.RELEASE_VERSION | default "dev"}}'
+      CERTPOUCH_RELEASE_COMMIT: '{{.RELEASE_COMMIT | default .GIT_HEAD}}'
+    cmds:
+      - bash scripts/verify-release.sh "$CERTPOUCH_OUTPUT_DIR" "$CERTPOUCH_RELEASE_COMMIT" "$CERTPOUCH_RELEASE_VERSION"
