@@ -7,7 +7,7 @@
 ## 実装済み
 
 - Linuxリリースに、バイナリだけを安全に配置・削除する `install.sh` と `uninstall.sh` を追加した。設定、資格情報、証明書、状態、systemd unitは保持し、管理外ファイルの上書きと変更済みバイナリの削除を既定で拒否する。[Linuxへのインストールと削除](linux-installation.md)
-- サーバー側の配布、Sheets取得、DNS生成、証明書更新は `server.yaml`、取得・配置は `client.yaml` に集約する。`configure dns` はSheets取得とゾーン生成の節を持つ `server.yaml` を生成する。[設定コマンド](configure.md)
+- サーバー側の配布、Sheets取得、DNS生成、証明書更新は `server.yaml`、取得・配置は `client.yaml` に集約する。`server.yaml` は `inventory`・`dns`・`certificates`・`distribution` の4節からなるv2形式だけを読み、v1のトップレベルキーは移行先を示すエラーで拒否する。YAMLエラーは値を表示せず行・列と未知・重複キー名を示す。`configure dns` と `configure server` もv2形式を出力する。[設定コマンド](configure.md)・[設定仕様](SPEC/02-configuration.md)
 - Go 1.26.11以降を使用する。配布APIのルーティングと共通処理にはGin v1.12.0を使用する。
 - `pki.Validate` は証明書・チェーン・秘密鍵を受け取り、呼び出し元が設定した信頼CA、発行者、期待SAN、検証時刻に基づいて検証する。正常時はリーフとDERのSHA-256フィンガープリントを返す。
 - テストCAを使い、正常な中間CAチェーンと、鍵不一致、SAN不一致、誤った発行者、未知CA、中間CA欠落、EKU欠落、余分なPEMデータ、期限切れの拒否を確認済み。
@@ -31,14 +31,14 @@
 - `server --check-config` は待ち受けを開始せずに設定、TLS鍵ペア、公開世代を検証する。WSLでは同梱unitの実行ユーザーとパスをテスト用に差し替え、非特権ユーザーで起動しHTTPS healthが応答することを確認した。
 - クライアントの `service.verify_tls` を指定すると、サービスがアクティブ世代の証明書を返すことを配置後と復旧時に確認できる。[Keycloak向け設定例](client-deployment.md)
 - `dns sync` は既存キャッシュまたはCSVからNSD向けゾーン候補を生成する。`dns apply` は専用管理ディレクトリで候補と切り戻し用の世代を検証し、NSDへの反映をSOA serialで確認する。[DNSゾーン生成と適用](dns-sync.md)
-- DNS設定で固定レコードを追加できる。`dns sync --serial-from` で管理中の `current` から次のserialを計算し、`dns diff` で適用前の差分を確認できる。
+- DNS設定で固定レコードを追加できる。`dns sync --serial-from` で管理中の `current` から次のserialを計算し、初回の候補は `--serial N` で指定する。`configure dns` はserialを書かず、serialのない `--dry-run` はserial 1で表示する。`dns diff` で適用前の差分を確認できる。
 - `dns fetch` はGoのOAuth2ライブラリでサービスアカウントを認証し、公式Sheetsクライアントで台帳を取得する。全範囲と内容の検証に通った場合だけキャッシュを置き換える。[取得設定と定期実行](sheets-fetch.md)
-- `server.inventory_refresh` を設定すると、キャッシュ・CSVのIP認可をサーバー再起動なしで反映できる。不正な台帳を読み込んだ場合は回復まで台帳モードの認証を停止する。
-- `dns fetch` はキャッシュと照合できる最終成功記録を保存する。`dns fetch --status` はその状態をローカルで表示し、`dns_inventory.max_age` は期限切れの台帳による新規配布要求を拒否する。[キャッシュの期限管理](dns-inventory.md)
+- 配布サーバーは `distribution.refresh_interval` ごとに、キャッシュ・CSVのIP認可をサーバー再起動なしで反映する。不正な台帳を読み込んだ場合は回復まで台帳モードの認証を停止する。
+- `dns fetch` はキャッシュと照合できる最終成功記録を保存する。`dns fetch --status` はその状態をローカルで表示し、`inventory.max_age` は期限切れの台帳による新規配布要求を拒否する。[キャッシュの期限管理](dns-inventory.md)
 - 配布APIはオプションでmTLSを使える。クライアント証明書のCA検証とクライアントIDへのフィンガープリント照合を追加し、従来のトークン・IP認可も維持する。[mTLSの設定](mtls.md)
 - オプションの失効リストで、クライアントIDまたはmTLSリーフを配布サーバーの再起動なしで拒否できる。[失効の設定](client-revocation.md)
 - `cert renew` は既存のRSA CAを使い、指定した証明書の初回発行・期限更新・公開を行う。dry-runではCA秘密鍵を読まない。暗号化PEMはOpenSSLでメモリ上に復号する。[証明書更新の設定と運用](certificate-renewal.md)
-- `server.publication_refresh` は公開ストアを定期的に読み直す。署名を管理者として実行した場合も、新しい世代はストアの所有者に合わせて保存する。証明書更新用systemd timerの例を追加した。
+- 配布サーバーは同じ間隔で公開ストアを定期的に読み直す。署名を管理者として実行した場合も、新しい世代はストアの所有者に合わせて保存する。証明書更新用systemd timerの例を追加した。
 - `cert status` は公開ストア上の証明書の期限をローカルで監視する。配布サーバーに接続せず、公開リーフだけを読む。[監視コマンド](certificate-renewal.md#公開証明書の期限監視)
 - 配布APIは一覧・メタデータ・ダウンロードの結果を構造化ログに記録する。定期的なストア検証に失敗したときはhealthが503を返す。[配布API仕様](SPEC/03-distribution-api.md)
 - Release PleaseがリリースPRを管理する。マージ後にタグと下書きを作成し、検証済みLinux amd64・arm64パッケージを添付する。[リリース手順](release-and-acceptance.md)

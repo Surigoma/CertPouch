@@ -35,6 +35,10 @@ func TestConfigureDNSInline(t *testing.T) {
 	if err := config.ValidateDNSConfig(path); err != nil {
 		t.Fatal(err)
 	}
+	// A fixed serial would conflict with pipeline taking serials from NSD.
+	if body, err := os.ReadFile(path); err != nil || strings.Contains(string(body), "serial") {
+		t.Fatalf("generated DNS config must not fix a SOA serial: %v\n%s", err, body)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)

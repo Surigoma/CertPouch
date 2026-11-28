@@ -89,28 +89,25 @@ func TestRenewWithPrivateCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	tlsKeyFile := write("tls.key", pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(tlsKey)}))
-	server := write("server.yaml", []byte(fmt.Sprintf(`
-server: {listen: "127.0.0.1:8443", tls: {certificate: %q, private_key: %q}}
-storage: {certificate_dir: %q, trust_ca_file: %q}
-certificates:
-  - name: web.example.internal
-    expected_dns_sans: [web.example.internal]
-    expected_ip_sans: ["192.0.2.10"]
-    issuer_certificate: %q
-`, caFile, tlsKeyFile, store, caFile, issuerFile)))
 	const name = "web.example.internal"
 	keyPath := filepath.Join(base, "issuer.key")
-	renewal := write("renewal.yaml", []byte(fmt.Sprintf(`
-issuer_certificate: %q
-issuer_private_key: %q
-issuer_chain: %q
-profiles:
-  - {name: web.example.internal, validity: "720h", renew_before: "168h"}
-`, issuerFile, keyPath, issuerFile)))
+	server := write("server.yaml", []byte(fmt.Sprintf(`
+distribution: {listen: "127.0.0.1:8443", tls: {certificate_file: %q, private_key_file: %q}}
+certificates:
+  store_dir: %q
+  trust_ca_file: %q
+  issuer: {certificate_file: %q, private_key_file: %q, chain_file: %q}
+  validity: "720h"
+  renew_before: "168h"
+  targets:
+    - name: web.example.internal
+      expected_dns_sans: [web.example.internal]
+      expected_ip_sans: ["192.0.2.10"]
+`, caFile, tlsKeyFile, store, caFile, issuerFile, keyPath, issuerFile)))
 	run := func(preview bool, want string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
-		args := []string{"--config", server, "--renewal-config", renewal}
+		args := []string{"--config", server}
 		if preview {
 			args = append(args, "--dry-run")
 		}
@@ -146,7 +143,7 @@ profiles:
 	}
 	run(true, "renew")
 	if useSystemd {
-		runRenewalTimer(t, base, store, server, renewal)
+		runRenewalTimer(t, base, store, server)
 	} else {
 		run(false, "renew")
 	}
@@ -197,7 +194,7 @@ profiles:
 	})
 }
 
-func runRenewalTimer(t *testing.T, base, store, server, renewal string) {
+func runRenewalTimer(t *testing.T, base, store, server string) {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -220,8 +217,7 @@ func runRenewalTimer(t *testing.T, base, store, server, renewal string) {
 		"--timer-property=AccuracySec=100ms", "--property=UMask=0077", "--property=RuntimeMaxSec=15s",
 		"--property=NoNewPrivileges=true", "--property=ProtectSystem=strict", "--property=ProtectHome=true",
 		"--property=PrivateTmp=true", "--property=ReadWritePaths="+store,
-		"--setenv=CERTPOUCH_RENEW_TEST_SERVER="+server, "--setenv=CERTPOUCH_RENEW_TEST_CONFIG="+renewal,
-		"--setenv=CERTPOUCH_RENEW_TEST_RESULT="+result, helper, "-test.run=^TestRenewalTimerProcess$")
+		"--setenv=CERTPOUCH_RENEW_TEST_SERVER="+server, "--setenv=CERTPOUCH_RENEW_TEST_RESULT="+result, helper, "-test.run=^TestRenewalTimerProcess$")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("start isolated renewal timer: %v: %s", err, output)
 	}
@@ -254,12 +250,12 @@ func runRenewalTimer(t *testing.T, base, store, server, renewal string) {
 
 // TestRenewalTimerProcess runs under the isolated timer with production-like restrictions.
 func TestRenewalTimerProcess(t *testing.T) {
-	server, renewal, result := os.Getenv("CERTPOUCH_RENEW_TEST_SERVER"), os.Getenv("CERTPOUCH_RENEW_TEST_CONFIG"), os.Getenv("CERTPOUCH_RENEW_TEST_RESULT")
-	if server == "" || renewal == "" || result == "" {
+	server, result := os.Getenv("CERTPOUCH_RENEW_TEST_SERVER"), os.Getenv("CERTPOUCH_RENEW_TEST_RESULT")
+	if server == "" || result == "" {
 		t.Skip("only used by the renewal timer")
 	}
 	var stdout, stderr bytes.Buffer
-	code := runRenew(t.Context(), []string{"--config", server, "--renewal-config", renewal}, &stdout, &stderr)
+	code := runRenew(t.Context(), []string{"--config", server}, &stdout, &stderr)
 	tmp := result + ".tmp"
 	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n%s%s", code, &stdout, &stderr)), 0600); err != nil {
 		t.Fatal(err)

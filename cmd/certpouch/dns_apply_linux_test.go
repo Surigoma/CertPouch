@@ -168,16 +168,18 @@ zone:
 	}
 	serialConfig := filepath.Join(base, "serial.yaml")
 	serialYAML := fmt.Sprintf(`
-dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: example.internal}
-zones:
-  primary: ns.example.net
-  mailbox: hostmaster.example.internal
-  nameservers: [ns.example.net]
-  ttl: 300
-  refresh: 3600
-  retry: 600
-  expire: 604800
-  negative_ttl: 300
+inventory: {cache_file: %q, fallback_prefix: "192.0.2"}
+dns:
+  zone: example.internal
+  zones:
+    primary: ns.example.net
+    mailbox: hostmaster.example.internal
+    nameservers: [ns.example.net]
+    ttl: 300
+    refresh: 3600
+    retry: 600
+    expire: 604800
+    negative_ttl: 300
 `, cachePath)
 	if err := os.WriteFile(serialConfig, []byte(serialYAML), 0600); err != nil {
 		t.Fatal(err)

@@ -26,11 +26,8 @@ func runDNSApply(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	address := flags.String("dns-address", "127.0.0.1:53", "address of the authoritative NSD listener for SOA verification")
 	initialize := flags.Bool("initialize", false, "prepare the first snapshot without contacting NSD")
 	maxRemoved := flags.Int("max-removed-records", -1, "maximum old DNS records removed or replaced (-1 disables the limit)")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if flags.NArg() != 0 || !filepath.IsAbs(*candidate) || !filepath.IsAbs(*root) ||
 		(!*initialize && !filepath.IsAbs(*conf)) || *maxRemoved < -1 || (*initialize && *maxRemoved >= 0) {

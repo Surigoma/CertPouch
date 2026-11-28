@@ -43,42 +43,32 @@ type Server struct {
 	RevocationRefresh           time.Duration
 }
 
+// serverDocument is the internal form of server.yaml. Only decodeServer fills
+// it, from the v2 layout described by workflowDocument.
 type serverDocument struct {
-	Deployment *DNSDeployment `yaml:"-"`
+	Deployment *DNSDeployment
 	Server     struct {
-		Listen             string `yaml:"listen"`
-		PublicationRefresh string `yaml:"publication_refresh"`
-		InventoryRefresh   string `yaml:"inventory_refresh"`
-		RevocationFile     string `yaml:"revocation_file"`
-		RevocationRefresh  string `yaml:"revocation_refresh"`
-		TLS                struct {
-			Certificate string `yaml:"certificate"`
-			PrivateKey  string `yaml:"private_key"`
-			ClientCA    string `yaml:"client_ca"`
-		} `yaml:"tls"`
-	} `yaml:"server"`
+		Listen            string
+		Refresh           string
+		RevocationFile    string
+		RevocationRefresh string
+		TLS               struct {
+			Certificate string
+			PrivateKey  string
+			ClientCA    string
+		}
+	}
 	Storage struct {
-		CertificateDir string `yaml:"certificate_dir"`
-		TrustCAFile    string `yaml:"trust_ca_file"`
-		IssuerFile     string `yaml:"issuer_certificate"`
-	} `yaml:"storage"`
-	DNSInventory *inventoryDocument   `yaml:"dns_inventory"`
-	Sheets       googleSheetsDocument `yaml:"google_sheets"`
-	Zones        dnsZoneDocument      `yaml:"zones"`
-	Renewal      Renewal              `yaml:"renewal"`
-	Pipeline     *struct {
-		DNS struct {
-			Deployment DNSDeployment        `yaml:"deployment"`
-			Inventory  *inventoryDocument   `yaml:"inventory"`
-			Sheets     googleSheetsDocument `yaml:"sheets"`
-			Zones      dnsZoneDocument      `yaml:"zones"`
-		} `yaml:"dns"`
-		Certificates struct {
-			Renewal Renewal `yaml:"renewal"`
-		} `yaml:"certificates"`
-	} `yaml:"pipeline"`
-	Certificates []certificateDocument `yaml:"certificates"`
-	Clients      []clientDocument      `yaml:"clients"`
+		CertificateDir string
+		TrustCAFile    string
+		IssuerFile     string
+	}
+	DNSInventory *inventoryDocument
+	Sheets       googleSheetsDocument
+	Zones        dnsZoneDocument
+	Renewal      Renewal
+	Certificates []certificateDocument
+	Clients      []clientDocument
 }
 
 type certificateDocument struct {
@@ -114,7 +104,7 @@ func PublicationLocations(path string) (string, []string, error) {
 		return "", nil, err
 	}
 	if !filepath.IsAbs(doc.Storage.CertificateDir) {
-		return "", nil, fmt.Errorf("storage.certificate_dir must be absolute")
+		return "", nil, fmt.Errorf("certificates.store_dir must be an absolute path")
 	}
 	if doc.Renewal.FromInventory {
 		inventory, err := doc.loadIssuanceInventory()
@@ -132,7 +122,7 @@ func PublicationLocations(path string) (string, []string, error) {
 
 func (doc serverDocument) loadIssuanceInventory() (dns.Inventory, error) {
 	if doc.DNSInventory == nil {
-		return dns.Inventory{}, fmt.Errorf("inventory issuance requires a DNS inventory")
+		return dns.Inventory{}, errIssuanceWithoutInventory
 	}
 	return doc.DNSInventory.load()
 }
@@ -145,27 +135,34 @@ func readServerDocument(path string) (serverDocument, error) {
 	return decodeServer(body)
 }
 
+var errIssuanceWithoutInventory = fmt.Errorf("certificates.issuer without certificates.targets issues a certificate for every inventory name and requires inventory.cache_file or inventory.csv_files")
+
 func loadServerDocument(doc serverDocument) (Server, error) {
 	_, port, err := net.SplitHostPort(doc.Server.Listen)
 	portNumber, portErr := strconv.ParseUint(port, 10, 16)
 	if err != nil || portErr != nil || portNumber == 0 {
-		return Server{}, fmt.Errorf("server.listen must contain a valid host and port")
+		return Server{}, fmt.Errorf("distribution.listen must contain a valid host and port")
 	}
-	for _, path := range []string{doc.Storage.CertificateDir, doc.Storage.TrustCAFile, doc.Server.TLS.Certificate, doc.Server.TLS.PrivateKey} {
-		if !filepath.IsAbs(path) {
-			return Server{}, fmt.Errorf("storage and TLS paths must be absolute")
+	for _, field := range []struct{ key, path string }{
+		{"certificates.store_dir", doc.Storage.CertificateDir},
+		{"certificates.trust_ca_file", doc.Storage.TrustCAFile},
+		{"distribution.tls.certificate_file", doc.Server.TLS.Certificate},
+		{"distribution.tls.private_key_file", doc.Server.TLS.PrivateKey},
+	} {
+		if !filepath.IsAbs(field.path) {
+			return Server{}, fmt.Errorf("%s must be an absolute path", field.key)
 		}
 	}
 	if _, err := checkedFile(doc.Server.TLS.PrivateKey, true); err != nil {
-		return Server{}, fmt.Errorf("check TLS private key: %w", err)
+		return Server{}, fmt.Errorf("check distribution.tls.private_key_file %s: %w", doc.Server.TLS.PrivateKey, err)
 	}
 	rootsPEM, err := readFile(doc.Storage.TrustCAFile, false, 1<<20)
 	if err != nil {
-		return Server{}, fmt.Errorf("read trust CA file: %w", err)
+		return Server{}, fmt.Errorf("read certificates.trust_ca_file %s: %w", doc.Storage.TrustCAFile, err)
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(rootsPEM) {
-		return Server{}, fmt.Errorf("trust CA file contains no certificates")
+		return Server{}, fmt.Errorf("certificates.trust_ca_file contains no certificates")
 	}
 	result := Server{
 		Listen: doc.Server.Listen, TLSCertificate: doc.Server.TLS.Certificate,
@@ -174,53 +171,46 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 	}
 	if path := doc.Server.TLS.ClientCA; path != "" {
 		if !filepath.IsAbs(path) {
-			return Server{}, fmt.Errorf("server.tls.client_ca must be absolute")
+			return Server{}, fmt.Errorf("distribution.tls.client_ca must be an absolute path")
 		}
 		result.TLSClientCAs, err = loadClientRoots(path)
 		if err != nil {
-			return Server{}, fmt.Errorf("load mTLS client CA: %w", err)
+			return Server{}, fmt.Errorf("load distribution.tls.client_ca %s: %w", path, err)
 		}
 	}
-	if value := doc.Server.PublicationRefresh; value != "" {
+	if value := doc.Server.Refresh; value != "" {
 		interval, err := time.ParseDuration(value)
 		if err != nil || interval < time.Second {
-			return Server{}, fmt.Errorf("server.publication_refresh must be a duration of at least one second")
+			return Server{}, fmt.Errorf("distribution.refresh_interval must be a duration of at least one second")
 		}
 		result.PublicationRefresh = interval
-	}
-	if value := doc.Server.InventoryRefresh; value != "" {
-		interval, err := time.ParseDuration(value)
-		if err != nil || interval < time.Second || doc.DNSInventory == nil {
-			return Server{}, fmt.Errorf("server.inventory_refresh requires dns_inventory and a duration of at least one second")
+		if doc.DNSInventory != nil {
+			result.InventoryRefresh = interval
 		}
-		result.InventoryRefresh = interval
-	}
-	if doc.DNSInventory != nil && doc.DNSInventory.MaxAge != "" && result.InventoryRefresh == 0 {
-		return Server{}, fmt.Errorf("dns_inventory.max_age requires server.inventory_refresh")
 	}
 	if path := doc.Server.RevocationFile; path != "" {
 		if !filepath.IsAbs(path) {
-			return Server{}, fmt.Errorf("server.revocation_file must be absolute")
+			return Server{}, fmt.Errorf("distribution.revocation_file must be an absolute path")
 		}
 		result.RevocationFile = path
 		result.RevocationRefresh = 5 * time.Second
 	} else if doc.Server.RevocationRefresh != "" {
-		return Server{}, fmt.Errorf("server.revocation_refresh requires server.revocation_file")
+		return Server{}, fmt.Errorf("distribution.revocation_refresh requires distribution.revocation_file")
 	}
 	if value := doc.Server.RevocationRefresh; value != "" {
 		interval, err := time.ParseDuration(value)
 		if err != nil || interval < time.Second {
-			return Server{}, fmt.Errorf("server.revocation_refresh must be a duration of at least one second")
+			return Server{}, fmt.Errorf("distribution.revocation_refresh must be a duration of at least one second")
 		}
 		result.RevocationRefresh = interval
 	}
 	for i, cert := range doc.Certificates {
 		if _, exists := result.Policies[cert.Name]; cert.Name == "" || exists {
-			return Server{}, fmt.Errorf("missing or duplicate certificates[%d].name", i)
+			return Server{}, fmt.Errorf("missing or duplicate certificates.targets[%d].name", i)
 		}
 		policy, err := cert.policy(roots, doc.Storage.IssuerFile)
 		if err != nil {
-			return Server{}, fmt.Errorf("certificates[%d]: %w", i, err)
+			return Server{}, fmt.Errorf("certificates.targets[%d]: %w", i, err)
 		}
 		result.Policies[cert.Name] = policy
 	}
@@ -235,13 +225,12 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		inventory = &parsed
 	}
 	if doc.Renewal.FromInventory {
-		if inventory == nil || len(doc.Certificates) != 0 || len(doc.Renewal.Profiles) != 0 ||
-			result.InventoryRefresh == 0 || result.PublicationRefresh == 0 {
-			return Server{}, fmt.Errorf("inventory issuance requires inventory and both refresh intervals, without explicit certificate targets or profiles")
+		if inventory == nil {
+			return Server{}, errIssuanceWithoutInventory
 		}
 		issuer, err := (certificateDocument{Name: "issuer.example.invalid", IssuerFile: doc.Renewal.CertificateFile}).policy(roots, "")
 		if err != nil {
-			return Server{}, err
+			return Server{}, fmt.Errorf("certificates.issuer.certificate_file: %w", err)
 		}
 		inventoryPolicy = pki.Policy{Roots: roots, Issuer: issuer.Issuer}
 		result.Policies = inventoryPolicies(*inventory, inventoryPolicy)
@@ -251,16 +240,16 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 	for i, entry := range doc.Clients {
 		client, err := entry.client(result.Policies, inventory, result.InventoryCertificates)
 		if err != nil {
-			return Server{}, fmt.Errorf("clients[%d]: %w", i, err)
+			return Server{}, fmt.Errorf("distribution.clients[%d]: %w", i, err)
 		}
 		client.ClientCertificateHashes, err = entry.certificateHashes(result.TLSClientCAs != nil)
 		if err != nil {
-			return Server{}, fmt.Errorf("clients[%d]: %w", i, err)
+			return Server{}, fmt.Errorf("distribution.clients[%d]: %w", i, err)
 		}
 		if client.Enabled {
 			for _, fingerprint := range client.ClientCertificateHashes {
 				if owner, exists := clientCertOwners[fingerprint]; exists && owner != client.ID {
-					return Server{}, fmt.Errorf("clients[%d]: client certificate fingerprint is assigned to multiple enabled clients", i)
+					return Server{}, fmt.Errorf("distribution.clients[%d]: client certificate fingerprint is assigned to multiple enabled clients", i)
 				}
 				clientCertOwners[fingerprint] = client.ID
 			}
@@ -288,7 +277,7 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 
 func (c clientDocument) certificateHashes(mtls bool) ([][sha256.Size]byte, error) {
 	if !mtls && len(c.ClientCertificateSHA256) != 0 {
-		return nil, fmt.Errorf("client_certificate_sha256 requires server.tls.client_ca")
+		return nil, fmt.Errorf("client_certificate_sha256 requires distribution.tls.client_ca")
 	}
 	if mtls && c.Enabled && len(c.ClientCertificateSHA256) == 0 {
 		return nil, fmt.Errorf("mTLS requires an allowed client certificate fingerprint")
@@ -314,48 +303,45 @@ func parseCertificateHashes(values []string) ([][sha256.Size]byte, error) {
 	return fingerprints, nil
 }
 
-func decodeServer(body []byte) (serverDocument, error) {
-	var doc serverDocument
-	var keys map[string]any
-	if err := decodeYAML(body, &keys); err != nil {
-		return doc, err
-	}
-	for _, key := range []string{"inventory", "dns", "distribution"} {
-		if _, exists := keys[key]; exists {
-			return decodeWorkflowServer(body)
-		}
-	}
-	if err := decodeYAML(body, &doc); err != nil {
-		return doc, err
-	}
-	if p := doc.Pipeline; p != nil {
-		var legacy map[string]any
-		if err := decodeYAML(body, &legacy); err != nil {
-			return doc, err
-		}
-		for _, key := range []string{"dns_inventory", "google_sheets", "zones", "renewal"} {
-			if _, exists := legacy[key]; exists {
-				return doc, fmt.Errorf("pipeline cannot be combined with top-level %s", key)
-			}
-		}
-		doc.DNSInventory, doc.Sheets, doc.Zones = p.DNS.Inventory, p.DNS.Sheets, p.DNS.Zones
-		doc.Renewal = p.Certificates.Renewal
-		doc.Deployment = &p.DNS.Deployment
-	}
-	return doc, nil
-}
-
 func decodeYAML(body []byte, target any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(body), yaml.Strict())
 	if err := dec.Decode(target); err != nil {
-		// YAML diagnostics can contain input lines. Avoid logging configuration contents.
-		return fmt.Errorf("invalid YAML: check syntax, field names, types and duplicate keys")
+		return describeYAMLError(err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("YAML must contain exactly one document")
 	}
 	return nil
+}
+
+// describeYAMLError reports where decoding failed without echoing values.
+// Parser diagnostics can quote input lines, so only messages that name keys
+// or node types are passed through.
+func describeYAMLError(err error) error {
+	var yamlErr yaml.Error
+	if !errors.As(err, &yamlErr) || yamlErr.GetToken() == nil || yamlErr.GetToken().Position == nil {
+		return fmt.Errorf("invalid YAML: check syntax, field names, types and duplicate keys")
+	}
+	position := yamlErr.GetToken().Position
+	at := fmt.Sprintf("line %d, column %d", position.Line, position.Column)
+	var unknown *yaml.UnknownFieldError
+	var duplicate *yaml.DuplicateKeyError
+	var syntax *yaml.SyntaxError
+	var typeErr *yaml.TypeError
+	var nodeErr *yaml.UnexpectedNodeTypeError
+	switch {
+	case errors.As(err, &unknown):
+		return fmt.Errorf("invalid YAML at %s: %s", at, unknown.GetMessage())
+	case errors.As(err, &duplicate):
+		return fmt.Errorf("invalid YAML at %s: %s", at, duplicate.GetMessage())
+	case errors.As(err, &syntax) && strings.HasPrefix(syntax.GetMessage(), `mapping key "`):
+		key, _, _ := strings.Cut(strings.TrimPrefix(syntax.GetMessage(), `mapping key "`), `"`)
+		return fmt.Errorf("invalid YAML at %s: duplicate key %q", at, key)
+	case errors.As(err, &typeErr), errors.As(err, &nodeErr):
+		return fmt.Errorf("invalid YAML at %s: value has the wrong type", at)
+	}
+	return fmt.Errorf("invalid YAML syntax at %s", at)
 }
 
 func (c certificateDocument) policy(roots *x509.CertPool, defaultIssuer string) (pki.Policy, error) {
@@ -436,7 +422,7 @@ func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.In
 		client.CertificateIPs = rules
 		client.AllowedCertificates = nil
 	} else if len(c.Overrides) != 0 || c.InventoryAccess != "" {
-		return client, fmt.Errorf("inventory access configuration requires dns_inventory")
+		return client, fmt.Errorf("certificate_access_overrides and inventory_access require inventory.cache_file or inventory.csv_files")
 	}
 	for _, value := range c.AllowedIPs {
 		prefix, err := netip.ParsePrefix(value)

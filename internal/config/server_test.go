@@ -25,22 +25,25 @@ func TestInventoryRefreshIsolatesDeletionsAndKeepsStartupCredentials(t *testing.
 	}
 	write(hash, strings.Repeat("a", 64))
 	write(cache, `{"valueRanges":[{"values":[["","192.0.2","10","web","","","portal"],["","192.0.2","12","backup"]]}]}`)
-	write(path, fmt.Sprintf(`server:
+	write(path, fmt.Sprintf(`inventory: {cache_file: %q, fallback_prefix: "192.0.2"}
+dns: {zone: "example.internal"}
+certificates:
+  store_dir: %q
+  trust_ca_file: %q
+  issuer: {certificate_file: %q, private_key_file: %q}
+  validity: "720h"
+  renew_before: "168h"
+distribution:
   listen: "127.0.0.1:8443"
-  tls: {certificate: %q, private_key: %q}
-  publication_refresh: "5s"
-  inventory_refresh: "5s"
-storage: {certificate_dir: %q, trust_ca_file: %q}
-dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: "example.internal"}
-renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_certificate: %q, issuer_private_key: %q}
-clients:
-  - id: test
-    enabled: true
-    token_hash_file: %q
-    certificate_access_overrides:
-      portal.example.internal: [web.pvt.example.internal]
-      web.pvt.example.internal: [backup.pvt.example.internal, WEB.pvt.example.internal.]
-`, ca, hash, dir, ca, cache, ca, filepath.Join(dir, "issuer.key"), hash))
+  tls: {certificate_file: %q, private_key_file: %q}
+  clients:
+    - id: test
+      enabled: true
+      token_hash_file: %q
+      certificate_access_overrides:
+        portal.example.internal: [web.pvt.example.internal]
+        web.pvt.example.internal: [backup.pvt.example.internal, WEB.pvt.example.internal.]
+`, cache, dir, ca, ca, filepath.Join(dir, "issuer.key"), ca, hash, hash))
 	cfg, err := LoadServer(path)
 	if err != nil {
 		t.Fatal(err)
@@ -78,14 +81,26 @@ func TestRenewalProfilesFromInventory(t *testing.T) {
 	if err := os.WriteFile(cache, []byte(`{"valueRanges":[{"values":[["","192.0.2","10","web01","","","portal"]]}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	body := fmt.Sprintf(`storage: {certificate_dir: %q}
-dns_inventory: {cache_file: %q, fallback_prefix: "192.0.2", zone: "example.internal"}
-renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_certificate: %q, issuer_private_key: %q}
-`, dir, cache, filepath.Join(dir, "issuer.pem"), filepath.Join(dir, "issuer.key"))
+	body := fmt.Sprintf(`inventory: {cache_file: %q, fallback_prefix: "192.0.2"}
+dns: {zone: "example.internal"}
+certificates:
+  store_dir: %q
+  issuer: {certificate_file: %q, private_key_file: %q}
+  validity: "720h"
+  renew_before: "168h"
+`, cache, dir, filepath.Join(dir, "issuer.pem"), filepath.Join(dir, "issuer.key"))
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := LoadRenewal(path)
+	doc, err := readServerDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := doc.loadIssuanceInventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := renewalForNames(doc.Renewal, inventory.Names())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +114,8 @@ renewal: {from_inventory: true, validity: "720h", renew_before: "168h", issuer_c
 	}
 }
 
-func TestDecodeWorkflowExample(t *testing.T) {
-	body, err := os.ReadFile("../../configs/workflow-server.example.yaml")
+func TestDecodeServerExample(t *testing.T) {
+	body, err := os.ReadFile("../../configs/server.example.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,28 +187,58 @@ func TestInventoryAccessModes(t *testing.T) {
 	}
 }
 
-func TestDecodeServer(t *testing.T) {
-	body, err := os.ReadFile("../../configs/server.example.yaml")
+func TestDecodeServerRejectsInvalidYAMLWithoutDisclosingValues(t *testing.T) {
+	for name, tc := range map[string]struct{ input, want string }{
+		"unknown key":               {"distribution:\n  listen: ':8443'\n  unexpected: true\n", `line 3, column 3: unknown field "unexpected"`},
+		"duplicate key":             {"distribution:\n  listen: ':8443'\n  listen: ':9443'\n", `line 3, column 3: duplicate key "listen"`},
+		"wrong type":                {"distribution: {clients: [{allowed_ips: true}]}", "value has the wrong type"},
+		"extra document":            {"dns: {}\n---\ndistribution: {}\n", "exactly one document"},
+		"malformed sensitive value": {"token: [should-not-be-disclosed", "invalid YAML"},
+		"target timing without key": {"certificates:\n  targets: [{name: web.example.internal, validity: 24h}]\n", "require certificates.issuer.private_key_file"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := decodeServer([]byte(tc.input))
+			if err == nil || !strings.Contains(err.Error(), tc.want) ||
+				strings.Contains(err.Error(), "should-not-be-disclosed") || strings.Contains(err.Error(), "8443") {
+				t.Fatalf("decodeServer error = %v, want %q without values", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecodeServerRejectsV1Layouts(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"server:\n  listen: ':8443'\n", "top-level server is a CertPouch v1 key; move it to distribution"},
+		{"storage: {certificate_dir: /x}\n", "certificates.store_dir"},
+		{"dns_inventory: {cache_file: /x}\n", "move it to inventory"},
+		{"pipeline: {dns: {}}\n", "top-level pipeline"},
+		{"renewal: {}\n", "certificates.issuer"},
+		{"clients: []\n", "distribution.clients"},
+		{"certificates:\n  - name: web.example.internal\n", "certificates.targets"},
+	} {
+		if _, err := decodeServer([]byte(tc.input)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("decodeServer(%q) error = %v, want %q", tc.input, err, tc.want)
+		}
+	}
+}
+
+func TestDecodeServerExplicitTargets(t *testing.T) {
+	doc, err := decodeServer([]byte(`certificates:
+  issuer: {certificate_file: /ca/issuer.pem, private_key_file: /ca/issuer.key}
+  validity: 720h
+  renew_before: 168h
+  targets:
+    - {name: web.example.internal}
+    - {name: api.example.internal, expected_dns_sans: [api.example.internal], validity: 2160h}
+`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := decodeServer(body)
-	if err != nil || doc.Server.Listen != "127.0.0.1:8443" || len(doc.Clients) != 1 {
-		t.Fatalf("example did not decode: %v", err)
-	}
-	for name, input := range map[string]string{
-		"unknown key":               "server:\n  listen: ':8443'\n  unexpected: true\n",
-		"duplicate key":             "server:\n  listen: ':8443'\n  listen: ':9443'\n",
-		"wrong type":                "clients: [{allowed_ips: true}]",
-		"extra document":            "server: {}\n---\nclients: []\n",
-		"malformed sensitive value": "token: [should-not-be-disclosed",
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := decodeServer([]byte(input))
-			if err == nil || strings.Contains(err.Error(), "should-not-be-disclosed") {
-				t.Fatal("invalid config was accepted or its contents were disclosed")
-			}
-		})
+	if doc.Renewal.FromInventory || doc.DNSInventory != nil || len(doc.Certificates) != 2 ||
+		doc.Storage.IssuerFile != "/ca/issuer.pem" || len(doc.Renewal.Profiles) != 2 ||
+		doc.Renewal.Profiles[0].ValidityText != "720h" || doc.Renewal.Profiles[1].ValidityText != "2160h" ||
+		doc.Renewal.Profiles[1].RenewBeforeText != "168h" || doc.Certificates[1].DNS[0] != "api.example.internal" {
+		t.Fatalf("unexpected explicit target mapping: %+v", doc)
 	}
 }
 
@@ -208,24 +253,27 @@ func TestLoadServerRejectsUnsafeSettings(t *testing.T) {
 	if err := os.WriteFile(badCA, []byte("test placeholder"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	body := fmt.Sprintf(`server:
+	body := fmt.Sprintf(`distribution:
   listen: "127.0.0.1:8443"
-  tls: {certificate: %q, private_key: %q}
-storage: {certificate_dir: %q, trust_ca_file: %q}
+  tls: {certificate_file: %q, private_key_file: %q}
+certificates:
+  store_dir: %q
+  trust_ca_file: %q
 `, ca, key, dir, ca)
-	const first = "  - {name: web.example.internal, issuer_certificate: %q}\n"
+	const first = "    - {name: web.example.internal, issuer_certificate: %q}\n"
 	tests := []struct {
 		name, config, want string
 	}{
-		{"invalid listen port", strings.Replace(body, "8443", "0", 1), "valid host and port"},
-		{"relative private key", strings.Replace(body, fmt.Sprintf("%q", key), "listener.key", 1), "paths must be absolute"},
-		{"missing private key", strings.Replace(body, fmt.Sprintf("%q", key), fmt.Sprintf("%q", filepath.Join(dir, "missing")), 1), "check TLS private key"},
-		{"invalid trust bundle", strings.Replace(body, "trust_ca_file: "+fmt.Sprintf("%q", ca), "trust_ca_file: "+fmt.Sprintf("%q", badCA), 1), "contains no certificates"},
-		{"relative client CA", strings.Replace(body, "private_key: "+fmt.Sprintf("%q", key), "private_key: "+fmt.Sprintf("%q", key)+", client_ca: relative.pem", 1), "client_ca must be absolute"},
-		{"fast publication refresh", strings.Replace(body, "  tls:", "  publication_refresh: 50ms\n  tls:", 1), "publication_refresh must be a duration of at least one second"},
-		{"refresh without inventory", strings.Replace(body, "  tls:", "  inventory_refresh: 1s\n  tls:", 1), "inventory_refresh requires dns_inventory"},
-		{"revocation refresh without file", strings.Replace(body, "  tls:", "  revocation_refresh: 1s\n  tls:", 1), "revocation_refresh requires server.revocation_file"},
-		{"duplicate certificate names", body + "certificates:\n" + fmt.Sprintf(first+first, ca, ca), "duplicate certificates"},
+		{"invalid listen port", strings.Replace(body, "8443", "0", 1), "distribution.listen must contain a valid host and port"},
+		{"relative private key", strings.Replace(body, fmt.Sprintf("%q", key), "listener.key", 1), "distribution.tls.private_key_file must be an absolute path"},
+		{"relative store", strings.Replace(body, fmt.Sprintf("store_dir: %q", dir), "store_dir: store", 1), "certificates.store_dir must be an absolute path"},
+		{"missing private key", strings.Replace(body, fmt.Sprintf("%q", key), fmt.Sprintf("%q", filepath.Join(dir, "missing")), 1), "check distribution.tls.private_key_file"},
+		{"invalid trust bundle", strings.Replace(body, "trust_ca_file: "+fmt.Sprintf("%q", ca), "trust_ca_file: "+fmt.Sprintf("%q", badCA), 1), "trust_ca_file contains no certificates"},
+		{"relative client CA", strings.Replace(body, "private_key_file: "+fmt.Sprintf("%q", key), "private_key_file: "+fmt.Sprintf("%q", key)+", client_ca: relative.pem", 1), "distribution.tls.client_ca must be an absolute path"},
+		{"fast refresh", strings.Replace(body, "  tls:", "  refresh_interval: 50ms\n  tls:", 1), "distribution.refresh_interval must be a duration of at least one second"},
+		{"revocation refresh without file", strings.Replace(body, "  tls:", "  revocation_refresh: 1s\n  tls:", 1), "revocation_refresh requires distribution.revocation_file"},
+		{"duplicate certificate names", body + "  targets:\n" + fmt.Sprintf(first+first, ca, ca), "duplicate certificates.targets[1].name"},
+		{"issuer without inventory", body + fmt.Sprintf("  issuer: {certificate_file: %q}\n", ca), "requires inventory.cache_file or inventory.csv_files"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

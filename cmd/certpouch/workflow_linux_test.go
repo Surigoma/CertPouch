@@ -87,20 +87,22 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 	const noRevocations = "client_ids: []\nclient_certificate_sha256: []\n"
 	revocationFile := write("revocations.yaml", []byte(noRevocations))
 	serverConfig := write("server.yaml", []byte(fmt.Sprintf(`
-server:
+distribution:
   listen: %q
-  publication_refresh: "1s"
-  inventory_refresh: "1s"
+  refresh_interval: "1s"
   revocation_file: %q
   revocation_refresh: "1s"
-  tls: {certificate: %q, private_key: %q, client_ca: %q}
-storage: {certificate_dir: %q, trust_ca_file: %q}
-dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal, max_age: "1h"}
+  tls: {certificate_file: %q, private_key_file: %q, client_ca: %q}
+  clients:
+    - {id: workflow, enabled: true, token_hash_file: %q, client_certificate_sha256: [%q]}
 certificates:
-  - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
-clients:
-  - {id: workflow, enabled: true, token_hash_file: %q, client_certificate_sha256: [%q]}
-`, addr, revocationFile, tlsCertFile, tlsKeyFile, caFile, store, caFile, cache, caFile, hashFile, clientFingerprint)))
+  store_dir: %q
+  trust_ca_file: %q
+  targets:
+    - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
+inventory: {cache_file: %q, fallback_prefix: "127.0.0", max_age: "1h"}
+dns: {zone: example.internal}
+`, addr, revocationFile, tlsCertFile, tlsKeyFile, caFile, hashFile, clientFingerprint, store, caFile, caFile, cache)))
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
 	keycloakHome := os.Getenv("CERTPOUCH_TEST_KEYCLOAK_HOME")
@@ -282,7 +284,7 @@ certificates:
 		t.Helper()
 		ctx, cancel := context.WithCancel(t.Context())
 		result := make(chan int, 1)
-		go func() { result <- run(ctx, []string{"server", "--config", serverConfig}, io.Discard) }()
+		go func() { result <- run(ctx, []string{"server", "--config", serverConfig}, io.Discard, io.Discard) }()
 		stop := func() {
 			t.Helper()
 			cancel()
@@ -327,7 +329,7 @@ certificates:
 		}
 	}
 	first := publish(firstFile, firstKeyFile)
-	if code := run(t.Context(), []string{"server", "--config", serverConfig, "--check-config"}, &diagnostic); code != 0 {
+	if code := run(t.Context(), []string{"server", "--config", serverConfig, "--check-config"}, io.Discard, &diagnostic); code != 0 {
 		t.Fatalf("server preflight exit %d: %s", code, &diagnostic)
 	}
 	serverYAML, err := os.ReadFile(serverConfig)
@@ -336,7 +338,7 @@ certificates:
 	}
 	badTLS := write("server-mismatched-key.yaml", bytes.Replace(serverYAML, []byte(tlsKeyFile), []byte(firstKeyFile), 1))
 	diagnostic.Reset()
-	if code := run(t.Context(), []string{"server", "--config", badTLS, "--check-config"}, &diagnostic); code == 0 ||
+	if code := run(t.Context(), []string{"server", "--config", badTLS, "--check-config"}, io.Discard, &diagnostic); code == 0 ||
 		!strings.Contains(diagnostic.String(), "check server TLS key pair") {
 		t.Fatalf("server preflight accepted a mismatched TLS key: %d, %s", code, &diagnostic)
 	}
@@ -385,6 +387,34 @@ certificates:
 		pull("unchanged", first, false)
 		if realSystemd && !reloadTime(t, logPath).Equal(firstReload) {
 			t.Fatal("unchanged certificate triggered a systemd reload")
+		}
+		// A certificate the server no longer offers, such as a removed alias,
+		// is reported without blocking the other certificates.
+		original, err := os.ReadFile(clientConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		absentDestination := mkdir("absent-destination")
+		absent := fmt.Sprintf("certificates:\n  - name: absent.example.internal\n    destination: %q\n    expected_dns_sans: [absent.example.internal]\n    issuer_certificate: %q\n",
+			absentDestination, caFile)
+		withAbsent := write("client-with-absent.yaml", bytes.Replace(original, []byte("certificates:\n"), []byte(absent), 1))
+		for _, preview := range []bool{true, false} {
+			output.Reset()
+			diagnostic.Reset()
+			args := []string{"--config", withAbsent}
+			if preview {
+				args = append(args, "--dry-run")
+			}
+			if code := runPull(t.Context(), args, &output, &diagnostic); code != 1 ||
+				output.String() != fmt.Sprintf("web.example.internal\tunchanged\t%s\n", first) ||
+				!strings.Contains(diagnostic.String(), `absent.example.internal: configured certificate "absent.example.internal" is absent`) ||
+				!strings.Contains(diagnostic.String(), "1 of 2 certificates failed") {
+				t.Fatalf("pull (dry-run %v) with one unavailable certificate: exit %d, stdout %q, stderr %q", preview, code, &output, &diagnostic)
+			}
+		}
+		state, err := deployment.ReadSync(filepath.Join(absentDestination, ".sync.json"))
+		if err != nil || state.LastError != "planning" {
+			t.Fatalf("failed certificate did not record its own error: %+v, %v", state, err)
 		}
 	}()
 	second := publish(secondFile, secondKeyFile)

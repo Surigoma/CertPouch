@@ -16,7 +16,7 @@ func TestSheetsCacheStatusWithoutServiceAccount(t *testing.T) {
 	cache := filepath.Join(root, "inventory.json")
 	config := filepath.Join(root, "fetch.yaml")
 	now := time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC)
-	input := fmt.Sprintf("dns_inventory: {cache_file: %q, max_age: '30m'}\n", cache)
+	input := fmt.Sprintf("inventory: {cache_file: %q, max_age: '30m'}\n", cache)
 	if err := os.WriteFile(config, []byte(input), 0600); err != nil {
 		t.Fatal(err)
 	}

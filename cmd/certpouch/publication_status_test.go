@@ -59,9 +59,9 @@ func TestPublicationStatusUsesOnlyPublicCertificates(t *testing.T) {
 		}
 	}
 	config := filepath.Join(t.TempDir(), "server.yaml")
-	body := fmt.Sprintf("storage: {certificate_dir: %q}\ncertificates:\n", store)
+	body := fmt.Sprintf("certificates:\n  store_dir: %q\n  targets:\n", store)
 	for _, prefix := range []string{"missing", "healthy", "future", "expired", "due"} {
-		body += "  - name: " + prefix + ".example.internal\n"
+		body += "    - name: " + prefix + ".example.internal\n"
 	}
 	if err := os.WriteFile(config, []byte(body), 0600); err != nil {
 		t.Fatal(err)

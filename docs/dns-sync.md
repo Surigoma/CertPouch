@@ -2,15 +2,15 @@
 
 ## Sheetsからの運用手順
 
-初期登録済みのNSD環境では、`certpouch pipeline --watch --config /etc/certpouch/server.yaml` で取得・反映・発行を定期実行できる。`pipeline.dns.deployment.poll_interval` の既定値は `3m`。失敗時は待ち時間を延ばす。NSDでSOAを確認してから台帳キャッシュを更新し、その後に証明書更新を実行する。発行が失敗した場合も配信中のDNSは維持される。
+初期登録済みのNSD環境では、`certpouch pipeline --watch --config /etc/certpouch/server.yaml` で取得・反映・発行を定期実行できる。`inventory.poll_interval` の既定値は `3m`。失敗時は待ち時間を延ばす。NSDでSOAを確認してから台帳キャッシュを更新し、その後に証明書更新を実行する。発行が失敗した場合も配信中のDNSは維持される。
 
-起動時のゾーン準備には[新形式の設定例](../configs/workflow-server.example.yaml)を使う。NSDの設定に `include: "/etc/nsd/certpouch-zones.conf"` を追加し、先頭行が `# Managed by CertPouch` の専用ファイルを作る。管理対象ゾーンの定義はこのファイルに集約する。既にNSDで運用中のゾーンを移す場合は、現行のSOAとレコードを確認してから管理世代を初期登録する。
+起動時のゾーン準備には[設定例](../configs/server.example.yaml)を使う。NSDの設定に `include: "/etc/nsd/certpouch-zones.conf"` を追加し、先頭行が `# Managed by CertPouch` の専用ファイルを作る。管理対象ゾーンの定義はこのファイルに集約する。既にNSDで運用中のゾーンを移す場合は、現行のSOAとレコードを確認してから管理世代を初期登録する。
 
 `dns.zones.reverse_zones` に使用するIPv4 /24逆引きゾーンを列挙する。レンジを変える場合はこのリストを変更して同期プロセスを再起動する。起動時に専用ファイルと管理世代を切り替え、`nsd-checkconf`、`nsd-control reconfig`、SOA照合を実行する。切り戻しにも失敗した場合は管理ディレクトリの `.dns-apply-lock/startup-recovery` を確認する。
 
 常駐させる場合は [pipeline用systemd unit](../configs/systemd/certpouch-pipeline.service)を使える。専用の取得タイマーと更新タイマーを同じ設定に対して併用しない。同期プロセスと配布サーバーを別ユーザーで動かす場合は、同期ユーザー所有かつ配布グループ読み取り可能な0640のキャッシュを事前に用意する。初回同期成功後に配布サーバーを起動する。配布サーバーのユーザーにはTLS鍵・トークンハッシュ・公開ストアを読める権限を付け、署名CA秘密鍵への権限は同期ユーザーに限る。
 
-新形式の設定例では `inventory.max_age: "30m"` を指定している。期限を超えると配布APIのhealthは503を返し、新規取得を拒否する。最後にDNS反映を確認できた台帳の取得時刻は `certpouch dns fetch --status --config /etc/certpouch/server.yaml` の `last_successful_fetch` で確認できる。既存の設定でも `inventory.max_age` を明示すると期限を監視できる。
+[設定例](../configs/server.example.yaml)では `inventory.max_age: "30m"` を指定している。期限を超えると配布APIのhealthは503を返し、新規取得を拒否する。最後にDNS反映を確認できた台帳の取得時刻は `certpouch dns fetch --status --config /etc/certpouch/server.yaml` の `last_successful_fetch` で確認できる。
 
 ```sh
 certpouch pipeline --config /etc/certpouch/server.yaml
@@ -19,26 +19,27 @@ certpouch pipeline --config /etc/certpouch/server.yaml --apply /absolute/path/to
 certpouch cert renew --config /etc/certpouch/server.yaml
 ```
 
-最初のコマンドはSheetsを読み取り、検証済み候補のパスを出力する。差分を確認し、そのパスを明示して反映する。証明書発行・公開は反映成功後に個別実行する。
+最初のコマンドはSheetsを読み取り、検証済み候補のパスを出力する。差分を確認し、そのパスを明示して反映する。証明書発行・公開は反映成功後に個別実行する。この手動の流れは内部で `dns fetch` を使うため、`certificates.targets` を省略して台帳上のすべての名前を発行する構成では使えない。その構成では `pipeline --once` または `--watch` を使う。
 
-`pipeline.dns.zones.reverse_zones` に管理するIPv4逆引きゾーン名を指定すると、PTRが0件になってもそのゾーンを候補に残す。例は `reverse_zones: ["2.0.192.in-addr.arpa"]`。指定外のIPv4逆引きゾーンが必要な台帳は候補生成に失敗する。NSDへのゾーン登録は初回適用手順に従う。
+`dns.zones.reverse_zones` に管理するIPv4逆引きゾーン名を指定すると、PTRが0件になってもそのゾーンを候補に残す。例は `reverse_zones: ["2.0.192.in-addr.arpa"]`。指定外のIPv4逆引きゾーンが必要な台帳は候補生成に失敗する。NSDへのゾーン登録は初回適用手順に従う。
 
-初回は既存NSDへの適用手順に従って管理スナップショットを初期化する。初回候補には `pipeline.dns.zones.serial` を設定して個別の `dns sync` を使う。初期化後は固定serialを外し、`pipeline.dns.deployment.zone_dir` の現行世代からserialを進める。
+初回は既存NSDへの適用手順に従って管理スナップショットを初期化する。初回候補は `dns sync --stage-dir DIR --serial N` で作る。`N` は現在NSDが配信しているserialより新しい値にする。初期化後は `--serial-from` または `pipeline` が `dns.nsd.zone_dir` の現行世代からserialを進めるため、設定ファイルのserialは不要。
 
-`certpouch dns sync` はGoogle Sheetsキャッシュまたはシートを個別にエクスポートしたCSVから候補ゾーンを生成する。キャッシュの更新には [`dns fetch`](sheets-fetch.md) を使える。[サーバー設定例](../configs/server.example.yaml)で、台帳のパス、正引きゾーン名、SOA、ネームサーバー、TTLとserialを指定する。CSVの場合は `dns_inventory.cache_file` を `csv_files: ["/path/to/export.csv"]` に置き換える。複数ファイルでは、シートごとに初期プレフィックスをリセットする。
+`certpouch dns sync` はGoogle Sheetsキャッシュまたはシートを個別にエクスポートしたCSVから候補ゾーンを生成する。キャッシュの更新には [`dns fetch`](sheets-fetch.md) を使える。[サーバー設定例](../configs/server.example.yaml)で、台帳のパス、正引きゾーン名、SOA、ネームサーバー、TTLを指定する。CSVの場合は `inventory.cache_file` を `inventory.csv_files: ["/path/to/export.csv"]` に置き換える。複数ファイルでは、シートごとに初期プレフィックスをリセットする。
 
 ```sh
 certpouch dns sync --config /etc/certpouch/server.yaml --dry-run
-certpouch dns sync --config /etc/certpouch/server.yaml --stage-dir /var/lib/certpouch/dns-staging
+certpouch dns sync --config /etc/certpouch/server.yaml --serial 2026112801 \
+  --stage-dir /var/lib/certpouch/dns-staging
 ```
 
-`--dry-run` はゾーン候補を標準出力に表示する。`--stage-dir` は事前に作成した絶対パスを指定する。新しい候補ディレクトリに個別のゾーンファイルを書き出し、すべての `nsd-checkzone` が成功した場合にディレクトリの場所を表示する。生成コマンドは稼働中のゾーンの置換やNSDの再読み込みを行わない。
+`--dry-run` はゾーン候補を標準出力に表示する。初回の `--stage-dir` には、現在NSDが配信しているserialより新しい値を `--serial` で渡す（例は日付形式）。`--stage-dir` は事前に作成した絶対パスを指定する。新しい候補ディレクトリに個別のゾーンファイルを書き出し、すべての `nsd-checkzone` が成功した場合にディレクトリの場所を表示する。生成コマンドは稼働中のゾーンの置換やNSDの再読み込みを行わない。
 
 既存キャッシュからIPv4のAレコードと、アドレスごとの/24逆引きゾーンのPTRレコードを生成する。同じIPの別名はそれぞれPTR候補になる。生成器はIPv6のAAAAも扱うが、現在のキャッシュ形式はIPv4のみで、IPv6逆引きは未対応。空の台帳、ゾーン外のホスト名、アドレスがないゾーン内ネームサーバーはエラーになる。
 
-serialは現在の稼働ゾーンを確認したうえで設定する。`zones.previous_serials` にゾーン名ごとの現在のSOA serialを指定すると、`zones.serial` で指定した値がそれらより新しいか確認する。`zones.serial` を省略すると、全候補ゾーンに現在のserialを指定することが必要になり、ゾーンごとに1進める。比較と周回は [RFC 1982](https://www.rfc-editor.org/rfc/rfc1982.html) に従う。
+serialの出所は1つだけ選ぶ。`--serial N` は全候補ゾーンに同じ値を使う。`--serial-from` は管理中の世代、`--serial-from-baseline` はステージ済み候補のserialをゾーンごとに1進める。設定ファイルの `dns.zones.previous_serials` にゾーン名ごとの現在のSOA serialを書くと、`dns.zones.serial` の値がそれらより新しいか確認し、`dns.zones.serial` を省略した場合はゾーンごとに1進める。どれも指定しない `--dry-run` はserial 1で表示する。比較と周回は [RFC 1982](https://www.rfc-editor.org/rfc/rfc1982.html) に従う。
 
-初回適用後は、設定から `zones.serial` と `zones.previous_serials` を省略し、`--serial-from` で管理ディレクトリを指定できる。`current` の各ゾーンが持つSOA serialを1進めて候補を生成する。候補と管理中のゾーンの組み合わせが違う場合は生成を拒否する。適用時にはNSDが返すSOAとも照合し、レコードに変更がないゾーンは現在のserialを維持する。
+初回適用後は `--serial` の代わりに `--serial-from` で管理ディレクトリを指定する。`current` の各ゾーンが持つSOA serialを1進めて候補を生成する。候補と管理中のゾーンの組み合わせが違う場合は生成を拒否する。適用時にはNSDが返すSOAとも照合し、レコードに変更がないゾーンは現在のserialを維持する。
 
 ```sh
 certpouch dns sync --config /etc/certpouch/server.yaml \
@@ -68,7 +69,7 @@ certpouch dns diff --baseline /var/lib/certpouch/staging/old \
   --candidate /var/lib/certpouch/staging/new
 ```
 
-同じゾーンを生成し直す場合、`dns sync --serial-from-baseline PATH` で基準のSOA serialをゾーンごとに1進める。このオプションを使うときは、設定の `zones.serial` と `zones.previous_serials` を省略する。基準にないゾーンを追加するときは、設定側でserialを指定する。
+同じゾーンを生成し直す場合、`dns sync --serial-from-baseline PATH` で基準のSOA serialをゾーンごとに1進める。このオプションは `--serial` や設定の `dns.zones.serial`・`dns.zones.previous_serials` と併用できない。基準にないゾーンを追加するときは、代わりに `--serial N` を使う。
 
 ## NSDへの適用
 

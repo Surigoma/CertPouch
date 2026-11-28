@@ -253,7 +253,7 @@ distribution:
 
 	t.Run("server config preflight", func(t *testing.T) {
 		var stderr bytes.Buffer
-		if code := runServer(t.Context(), []string{"--config", path, "--check-config"}, &stderr); code != 0 ||
+		if code := runServer(t.Context(), []string{"--config", path, "--check-config"}, io.Discard, &stderr); code != 0 ||
 			!strings.Contains(stderr.String(), "2 published certificates") {
 			t.Fatalf("valid server config exit %d: %s", code, &stderr)
 		}
@@ -263,7 +263,7 @@ distribution:
 		}
 		bad := write("bad-listener.yaml", bytes.Replace(cfgBody, []byte(listenerKey), []byte(key), 1), 0600)
 		stderr.Reset()
-		if code := runServer(t.Context(), []string{"--config", bad, "--check-config"}, &stderr); code != 1 ||
+		if code := runServer(t.Context(), []string{"--config", bad, "--check-config"}, io.Discard, &stderr); code != 1 ||
 			!strings.Contains(stderr.String(), "check server TLS key pair") {
 			t.Fatalf("mismatched listener key exit %d: %s", code, &stderr)
 		}
@@ -281,7 +281,7 @@ distribution:
 		}
 		pipeline := func(args []string) int { return runPipeline(t.Context(), args, &out, &diagnostic) }
 		fetch := func(args []string) int { return runDNSFetch(t.Context(), args, &out, &diagnostic) }
-		runCommand(fetch, []string{"--config", path}, 2, "confirm DNS before updating the cache", &diagnostic)
+		runCommand(fetch, []string{"--config", path}, 2, "confirms NSD before updating the cache", &diagnostic)
 		runCommand(fetch, []string{"--config", path, "--status"}, 0, `"state":"verified"`, &out)
 		cfgBody, err := os.ReadFile(path)
 		if err != nil {

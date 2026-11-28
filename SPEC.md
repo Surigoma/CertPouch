@@ -19,7 +19,7 @@ Inventory membership identifies issuance targets. Retrieval always requires clie
 
 ### Current implementation gap
 
-The current CLI supports periodic synchronization with `pipeline --watch` and optional startup registration through a dedicated NSD include. The [workflow configuration example](configs/workflow-server.example.yaml) uses the task-oriented layout. The inventory cache is updated after DNS confirmation, and distribution reflects changes on its configured refresh intervals.
+The current CLI supports periodic synchronization with `pipeline --watch` and optional startup registration through a dedicated NSD include. The [server configuration example](configs/server.example.yaml) shows the v2 layout. The inventory cache is updated after DNS confirmation, and distribution reflects changes on its configured refresh intervals.
 
 ## Components and data flow
 
@@ -53,17 +53,17 @@ See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 | `certpouch dns diff --candidate PATH` | Compares a candidate with a managed `--zone-dir` or a staged `--baseline`. |
 | `certpouch dns apply --candidate PATH --zone-dir PATH` | Initializes the managed snapshot with `--initialize`, or updates NSD and verifies the served SOA serials. |
 
-Use subcommand `--help` for the full flag list. Configuration paths are explicit. See the [CLI contract](docs/SPEC/01-scope-architecture.md#cli契約), [configuration command](docs/configure.md), and [examples for common commands](docs/quickstart.md#普段使うコマンド).
+Use subcommand `--help` or `certpouch help <command>` for the full flag list; requested help is written to stdout. Configuration paths are explicit. See the [CLI contract](docs/SPEC/01-scope-architecture.md#cli契約), [configuration command](docs/configure.md), and [examples for common commands](docs/quickstart.md#普段使うコマンド).
 
 Release archives include Linux-only installation and removal scripts. They install only the executable and their management metadata; operational data and systemd configuration are intentionally preserved. See [Linux installation](docs/linux-installation.md).
 
 ## Configuration and authorization
 
-Use `server.yaml` for the server workflow and `client.yaml` on each receiving host. In `server.yaml`, `pipeline.dns` groups the inventory, Sheets source, zone settings, and NSD deployment. `pipeline.certificates.renewal` configures issuance and renewal. After reviewing and applying the DNS candidate, run `cert renew` separately to publish due certificates. See the [configuration guide](docs/configure.md).
+Use `server.yaml` for the server workflow and `client.yaml` on each receiving host. `server.yaml` has four sections: `inventory` (cache or CSV and the Sheets source), `dns` (zones and the managed NSD), `certificates` (the existing CA, store, and issued names), and `distribution` (HTTPS API and clients). Without `certificates.targets`, every inventory name is issued; with targets, only the listed names are distributed. CertPouch v1 top-level keys such as `server`, `storage`, `dns_inventory`, and `pipeline` are rejected with the v2 key to move them to. See the [configuration guide](docs/configure.md).
 
-The YAML loaders reject unknown and duplicate keys. A first distribution setup uses one [server YAML](configs/server.example.yaml) and one [client YAML](configs/client.example.yaml) per receiving host. Optional DNS generation, Sheets fetching, CA renewal, and runtime revocation use their own configuration files.
+The YAML loaders reject unknown and duplicate keys. A first distribution setup uses one [server YAML](configs/server.example.yaml) and one [client YAML](configs/client.example.yaml) per receiving host. DNS generation, Sheets fetching, and CA renewal are sections of the same server YAML; only the optional runtime revocation list is a separate file.
 
-The receiving host holds the token. The server reads its SHA-256 digest through `clients[].token_hash_file` and compares it in constant time. The client reads the token through `client.token_file`. In DNS inventory mode the server checks the TCP source IP against the certificate's logical name and any explicit per-client certificate exceptions. Static mode uses IP/CIDR allowlists and certificate assignments. Forwarding headers are ignored. Optional mTLS adds client certificate validation and fingerprint binding. Runtime revocation can deny a client ID or mTLS fingerprint.
+The receiving host holds the token. The server reads its SHA-256 digest through `distribution.clients[].token_hash_file` and compares it in constant time. The client reads the token through `client.token_file`. In DNS inventory mode the server checks the TCP source IP against the certificate's logical name and any explicit per-client certificate exceptions. Static mode uses IP/CIDR allowlists and certificate assignments. Forwarding headers are ignored. Optional mTLS adds client certificate validation and fingerprint binding. Runtime revocation can deny a client ID or mTLS fingerprint.
 
 Use documentation-only addresses and domains in examples. Restrict access to configuration, credentials, and signing keys. See [configuration](docs/SPEC/02-configuration.md), [DNS authorization](docs/dns-inventory.md), [mTLS](docs/mtls.md), and [revocation](docs/client-revocation.md).
 

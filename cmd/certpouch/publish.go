@@ -18,11 +18,8 @@ func runPublish(args []string, stdout, stderr io.Writer) int {
 	certificate := flags.String("certificate", "", "leaf certificate PEM file")
 	chain := flags.String("chain", "", "ordered intermediate CA PEM file")
 	key := flags.String("private-key", "", "leaf private key PEM file")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *path == "" || *name == "" || *certificate == "" || *key == "" || flags.NArg() != 0 {
 		flags.Usage()

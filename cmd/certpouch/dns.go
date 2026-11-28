@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/config"
@@ -22,22 +23,34 @@ func runDNSSync(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	stageDir := flags.String("stage-dir", "", "parent directory for a new nsd-checkzone-validated candidate")
 	serialFrom := flags.String("serial-from", "", "advance the serials of the current managed DNS snapshot")
 	serialFromBaseline := flags.String("serial-from-baseline", "", "advance the serials of a staged DNS snapshot")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
+	var fixed *uint32
+	flags.Func("serial", "SOA serial for the first candidate, newer than the serial NSD serves now", func(value string) error {
+		parsed, err := strconv.ParseUint(value, 10, 32)
+		if err != nil || parsed == 0 {
+			return fmt.Errorf("serial must be an integer from 1 to 4294967295")
 		}
-		return 2
+		serial := uint32(parsed)
+		fixed = &serial
+		return nil
+	})
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *path == "" || flags.NArg() != 0 || (*dryRun == (*stageDir != "")) ||
 		(*stageDir != "" && !filepath.IsAbs(*stageDir)) ||
-		(*serialFromBaseline != "" && (*serialFrom != "" || !filepath.IsAbs(*serialFromBaseline))) {
+		(*serialFromBaseline != "" && !filepath.IsAbs(*serialFromBaseline)) {
 		flags.Usage()
 		return 2
 	}
-	zones, err := config.LoadDNSZones(*path, *serialFrom, *serialFromBaseline)
+	zones, previewSerial, err := config.LoadDNSZones(*path, config.SerialSource{
+		ManagedDir: *serialFrom, BaselineDir: *serialFromBaseline, Fixed: fixed, Preview: *dryRun,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if previewSerial {
+		fmt.Fprintln(stderr, "no SOA serial source is configured; this preview uses serial 1 (stage with --serial N or --serial-from)")
 	}
 	if *dryRun {
 		for _, z := range zones {

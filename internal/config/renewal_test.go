@@ -5,35 +5,34 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-func TestLoadRenewalRejectsInvalidProfileConfiguration(t *testing.T) {
+func TestRenewalRejectsInvalidIssuanceConfiguration(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "server.yaml")
 	issuer, key := filepath.Join(dir, "issuer.pem"), filepath.Join(dir, "issuer.key")
-	base := fmt.Sprintf("issuer_certificate: %q\nissuer_private_key: %q\n", issuer, key)
-	const profile = "  - {name: web.example.internal, validity: 24h, renew_before: 1h}\n"
+	base := "certificates:\n  issuer: {certificate_file: " + strconv.Quote(issuer) + ", private_key_file: " + strconv.Quote(key) + "%s}\n%s"
+	const target = "    - {name: web.example.internal, validity: 24h, renew_before: 1h}\n"
 	for _, tc := range []struct{ name, config, want string }{
-		{"no profiles", base, "at least one certificate profile"},
-		{"relative chain path", base + "issuer_chain: chain.pem\nprofiles:\n" + profile, "absolute issuer paths"},
-		{"duplicate profile", base + "profiles:\n" + profile + profile, "invalid or duplicate renewal profile"},
-		{"renewal before issuance", base + "profiles:\n" + strings.Replace(profile, "1h", "25h", 1), "invalid or duplicate renewal profile"},
-		{"subsecond validity", base + "profiles:\n" + strings.Replace(profile, "24h", "24h1ms", 1), "invalid or duplicate renewal profile"},
-		{"unusable inventory policy", base + "from_inventory: true\nvalidity: 24h\nrenew_before: 24h\n", "invalid inventory renewal validity or renewal threshold"},
+		{"missing key", "certificates:\n  issuer: {certificate_file: " + strconv.Quote(issuer) + "}\n  targets: [{name: web.example.internal}]\n", "certificates.issuer.private_key_file as an absolute path"},
+		{"relative chain path", fmt.Sprintf(base, ", chain_file: chain.pem", "  targets:\n"+target), "certificates.issuer.chain_file as an absolute path"},
+		{"duplicate target", fmt.Sprintf(base, "", "  targets:\n"+target+target), `certificate "web.example.internal" needs a unique name`},
+		{"renewal before issuance", fmt.Sprintf(base, "", "  targets:\n"+strings.Replace(target, "1h", "25h", 1)), "renew_before shorter than validity"},
+		{"subsecond validity", fmt.Sprintf(base, "", "  targets:\n"+strings.Replace(target, "24h", "24h1ms", 1)), "renew_before shorter than validity"},
+		{"missing target timing", fmt.Sprintf(base, "", "  targets: [{name: web.example.internal}]\n"), "certificates.validity or certificates.targets[].validity"},
+		{"unusable inventory policy", fmt.Sprintf(base, "", "  validity: 24h\n  renew_before: 24h\n"), "certificates.validity and certificates.renew_before"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := os.WriteFile(path, []byte(tc.config), 0600); err != nil {
+			doc, err := decodeServer([]byte(tc.config))
+			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := LoadRenewal(path); err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("LoadRenewal error = %v, want %q", err, tc.want)
+			if _, err := renewalForNames(doc.Renewal, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("renewal error = %v, want %q", err, tc.want)
 			}
 		})
-	}
-	if _, err := LoadRenewal(filepath.Join(dir, "absent.yaml")); err == nil || !strings.Contains(err.Error(), "read renewal configuration") {
-		t.Fatalf("missing renewal config error = %v", err)
 	}
 }
 

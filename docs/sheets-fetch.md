@@ -4,7 +4,7 @@
 
 ## 設定
 
-[サーバー設定例](../configs/server.example.yaml)の `dns_inventory` と `google_sheets` に、スプレッドシートID、シートごとの範囲、サービスアカウントのJSONファイル、出力先を設定する。対象スプレッドシートはサービスアカウントに閲覧権限だけを付ける。JSONファイルを0600で取得用ユーザーだけが読めるようにする。取得コマンドは読み取り専用のOAuthスコープを使い、サービスアカウントのJSONや応答本文はエラーに表示しない。[サービスアカウントの認証方式](https://developers.google.com/identity/protocols/oauth2/service-account)
+[サーバー設定例](../configs/server.example.yaml)の `inventory.cache_file` に出力先、`inventory.sheets` にスプレッドシートID（`spreadsheet_id`）、シートごとの範囲（`ranges`）、サービスアカウントのJSONファイル（`credentials_file`）を設定する。対象スプレッドシートはサービスアカウントに閲覧権限だけを付ける。JSONファイルを0600で取得用ユーザーだけが読めるようにする。取得コマンドは読み取り専用のOAuthスコープを使い、サービスアカウントのJSONや応答本文はエラーに表示しない。[サービスアカウントの認証方式](https://developers.google.com/identity/protocols/oauth2/service-account)
 
 範囲は `'Example inventory'!A2:G256` のように、対象のシート名と見出し行を除いたセル範囲を指定する。[DNS台帳の記入例](dns-inventory.md#台帳の記入例)
 
@@ -18,7 +18,7 @@ certpouch dns fetch --config /etc/certpouch/server.yaml
 certpouch dns fetch --status --config /etc/certpouch/server.yaml
 ```
 
-`--status` はGoogleへ接続せず、サービスアカウントも読まず、最終成功時刻とキャッシュの状態をJSONで返す。`dns_inventory.max_age: "45m"` のように設定すると期限も確認できる。状態は `verified`、`stale`、`untracked`、`missing`、`invalid` のいずれかで、検証済みの `verified` を終了コード0、他の状態を1、設定エラーを2とする。
+`--status` はGoogleへ接続せず、サービスアカウントも読まず、最終成功時刻とキャッシュの状態をJSONで返す。`inventory.max_age: "45m"` のように設定すると期限も確認できる。状態は `verified`、`stale`、`untracked`、`missing`、`invalid` のいずれかで、検証済みの `verified` を終了コード0、他の状態を1、設定エラーを2とする。
 
 キャッシュの親ディレクトリは事前に作成し、取得ユーザーに通過・書き込み権限を与える。既存のキャッシュを使う場合は、取得ユーザーの所有にする。配布サーバーが別ユーザーなら、取得用と配布用に割り当てた共有グループで読めるよう、親ディレクトリの通過権限とファイルの0640を設定する。新規作成時の既定値は0600。既存ファイルのモードとグループは更新時に引き継ぐ。キャッシュの書き手は一つにする。
 
@@ -35,4 +35,4 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now certpouch-sheets-fetch.timer
 ```
 
-新しい台帳からゾーンを作るには [DNSゾーン生成と適用](dns-sync.md)を参照。配布認可に新しい台帳を自動反映する場合は、[配布サーバーの台帳設定](dns-inventory.md)で `server.inventory_refresh` を設定する。取得したキャッシュを基に候補を確認してからDNSの変更を適用する。
+新しい台帳からゾーンを作るには [DNSゾーン生成と適用](dns-sync.md)を参照。配布サーバーは `distribution.refresh_interval` ごとに台帳を読み直し、認可に反映する。[配布サーバーの台帳設定](dns-inventory.md)。取得したキャッシュを基に候補を確認してからDNSの変更を適用する。

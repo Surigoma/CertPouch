@@ -47,8 +47,8 @@ func TestPipelineCheckDoesNotApply(t *testing.T) {
 		wantError                                   string
 	}{
 		{"valid", include, managedNSDHeader, stage, "", 0600, 0, 0, ""},
-		{"missing stage", include, managedNSDHeader, filepath.Join(base, "missing"), "", 0600, 0, 1, "existing absolute directory"},
-		{"shared config", nsdPath, managedNSDHeader, stage, "", 0600, 0, 1, "dedicated absolute path"},
+		{"missing stage", include, managedNSDHeader, filepath.Join(base, "missing"), "", 0600, 0, 1, "dns.nsd.stage_dir must be an existing absolute directory"},
+		{"shared config", nsdPath, managedNSDHeader, stage, "", 0600, 0, 1, "absolute path different from dns.nsd.config_file"},
 		{"unmanaged include", include, "# Hand managed\n", stage, "", 0600, 0, 1, "must begin with"},
 		{"writable include", include, managedNSDHeader, stage, "", 0660, 0, 1, "protected from other writers"},
 		{"non-loopback DNS", include, managedNSDHeader, stage, "192.0.2.10:53", 0600, 0, 1, "loopback IP"},

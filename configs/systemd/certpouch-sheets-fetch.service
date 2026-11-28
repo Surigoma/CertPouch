@@ -13,4 +13,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/dns-inventory
+ReadWritePaths=/var/lib/certpouch

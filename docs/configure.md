@@ -2,18 +2,20 @@
 
 初回接続から日常のDNS更新、証明書の発行・配置までを試す場合は、[利用シーン別の操作例](user-flows.md)を参照してください。
 
-自動運用では[新形式のサーバー設定例](../configs/workflow-server.example.yaml)を `server.yaml` として使います。`inventory` はSheets取得、`dns` は管理ゾーンとNSD、`certificates` は共通の発行方針、`distribution` はHTTPS配布と取得制限です。クライアント側は従来どおり [client.yaml の例](../configs/client.example.yaml)を使います。
+サーバー側の設定は[サーバー設定例](../configs/server.example.yaml)の形式の `server.yaml` 1枚です。`inventory` は台帳の入力元、`dns` は管理ゾーンとNSD、`certificates` は既存CAと発行・配布する名前、`distribution` はHTTPS配布と取得制限です。`configure dns` と `configure server` もこの形式で出力します。クライアント側は [client.yaml の例](../configs/client.example.yaml)を使います。項目の一覧は[設定仕様](SPEC/02-configuration.md)を参照してください。
+
+CertPouch v1の `server`、`storage`、`dns_inventory`、`google_sheets`、`zones`、`renewal`、`pipeline`、`clients` を使った設定は読み込めません。起動時のエラーに表示される移行先のキーへ書き換えてください。
 
 `certpouch configure` は設定を新規ディレクトリへ生成する。既存ディレクトリやファイルは上書きしない。生成したYAMLは厳密デコーダーと各機能の検証処理を通し、失敗時は作成途中のディレクトリを削除する。
 
 ## DNSとSheetsの設定
 
-最初は `server.yaml` の `inventory` と `dns` だけで候補を確認できます。[全体の設定例](../configs/workflow-server.example.yaml)から、使う段階に合わせて節を追加してください。
+最初は `server.yaml` の `inventory` と `dns` だけで候補を確認できます。[全体の設定例](../configs/server.example.yaml)から、使う段階に合わせて節を追加してください。
 
 | 段階 | 編集する節 | 入力する内容 |
 | --- | --- | --- |
 | Sheets取得 | `inventory` と `dns.zone` | キャッシュの絶対パス、正引きゾーン名、IPv4の既定プレフィックス、シートID・範囲、閲覧専用サービスアカウントJSONの絶対パス |
-| ゾーン候補の確認 | `dns.zones` | 現行NSDのSOA・NS・TTL。初回の個別プレビューでは `serial` を指定 |
+| ゾーン候補の確認 | `dns.zones` | 現行NSDのSOA・NS・TTL。serialは設定に書かず、プレビューは1、初回の候補作成は `dns sync --serial N` で指定 |
 | NSD反映 | `dns.nsd` | 候補と管理世代の保存先、`nsd.conf`、専用include、SOA確認用のループバックアドレス |
 | 証明書の発行・配布 | `certificates` と `distribution` | 既存CAへのパス、共通の有効期間と更新時期、保存先、HTTPSとクライアント認可 |
 
@@ -24,7 +26,7 @@ certpouch dns fetch --config /etc/certpouch/server.yaml
 certpouch dns sync --config /etc/certpouch/server.yaml --dry-run
 ```
 
-`--dry-run` は正引き・逆引き候補を表示します。NSDの初期登録とその後の反映は[ゾーン生成・適用手順](dns-sync.md)に沿って行います。自動運用を始めるときは固定の `serial` を外し、管理中の世代から引き継ぎます。
+`--dry-run` は正引き・逆引き候補を表示します。NSDの初期登録とその後の反映は[ゾーン生成・適用手順](dns-sync.md)に沿って行います。serialを指定しないプレビューはSOA serial 1で表示し、その旨を標準エラーに出します。管理世代を持ったあとは `pipeline` が配信中の世代からserialを引き継ぎます。
 
 CUIでDNS設定を作成する。
 
@@ -48,7 +50,7 @@ certpouch configure dns \
   --range "'Example inventory'!A2:G256"
 ```
 
-`--nameserver` と `--range` は複数回指定できる。`--mailbox` を省略すると `hostmaster.<zone>`、`--nameserver` を省略するとSOA primaryを使う。TTLは300、初回serialは1を既定とし、`--ttl` と `--serial` で変更できる。
+`--nameserver` と `--range` は複数回指定できる。`--mailbox` を省略すると `hostmaster.<zone>`、`--nameserver` を省略するとSOA primaryを使う。TTLは300を既定とし、`--ttl` で変更できる。SOA serialは設定に書かない。初回の候補は `dns sync --serial N` で作り、その後は管理中の世代から引き継ぐ。
 
 生成物はサーバー側の共通設定 `server.yaml` だけである。Sheetsの3項目を指定した場合は同じファイルに
 `inventory.sheets` も入り、初期確認用の `dns fetch` と `dns sync` の両方へ同じパスを渡す。
@@ -59,9 +61,9 @@ certpouch configure dns \
 
 ## 配布サーバーとクライアント
 
-通常の証明書では `certificates[].name` にDNS名を書くだけで、その名前が期待DNS SANになります。共通の直接発行者はサーバーの `storage.issuer_certificate`、クライアントの `validation.issuer_certificate` に設定します。別名・IP SAN・別の発行者が必要な証明書だけ、個別に設定してください。[設定例](../configs/server.example.yaml)
+名前を固定して配布する場合、サーバーの `certificates.targets[].name` とクライアントの `certificates[].name` にDNS名を書くだけで、その名前が期待DNS SANになります。共通の直接発行者はサーバーの `certificates.issuer.certificate_file`、クライアントの `validation.issuer_certificate` に設定します。別名・IP SAN・別の発行者が必要な証明書だけ、個別に設定してください。`certificates.targets` を省略すると台帳上のすべての名前が対象です。[設定例](../configs/server.example.yaml)
 
-既存の初期化機能も同じ入口から利用できる。
+配布サーバーと取得ホスト1台分の初期設定も同じ入口から作成できる。`configure server` は `certificates.targets` に1件の名前を持つ `server.yaml` を出力する。
 
 ```sh
 certpouch configure server --help
