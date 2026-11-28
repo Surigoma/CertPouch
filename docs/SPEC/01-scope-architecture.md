@@ -2,15 +2,23 @@
 
 ## 対象範囲
 
-CertPouchはGo製の単一バイナリとして、セルフホストのDNS・プライベートPKI管理とHTTPSによるPull型証明書配布を提供する。MITライセンスとし、必須のクラウド依存を設けない。外部ACMEプロバイダーに依存せず、完全なACMEクライアントは実装しない。
+CertPouchはGo製の単一バイナリで、次を提供する。
 
-Linuxとsystemdを使って証明書を配置する。DNSはNSD向けの候補生成・検証・適用に対応し、発行・更新は既存のプライベートCAを使用する。配布・初期設定の操作例は[初回導入](../quickstart.md)を参照する。
+- セルフホストのDNS管理（NSD向けの候補生成・検証・適用）
+- 既存のプライベートCAを使う証明書の発行・更新
+- HTTPSによるPull型の証明書配布と、Linux・systemdでの配置
 
-リリースアーカイブのLinux用インストーラーは実行ファイルと管理情報だけを配置する。アンインストーラーは管理情報と一致する実行ファイルだけを削除し、設定、資格情報、証明書、状態、systemd unit、サービスアカウントを保持する。[Linuxへのインストールと削除](../linux-installation.md)
+ライセンスはMITとする。必須のクラウド依存を設けない。外部ACMEプロバイダーに依存せず、完全なACMEクライアントは実装しない。
+
+リリースアーカイブのLinux用インストーラーは、実行ファイルと管理情報だけを配置する。アンインストーラーは管理情報と一致する実行ファイルだけを削除し、設定、資格情報、証明書、状態、systemd unit、サービスアカウントを保持する。[Linuxへのインストールと削除](../linux-installation.md)
+
+操作例は[QuickStart](../quickstart.md)と[手動配布の手順](../manual-distribution.md)を参照する。
 
 ## 全体構成
 
-DNS台帳はゾーン生成に使い、台帳モードでは配布時の接続元認可にも使う。既存CAで署名した証明書は検証後に公開ストアへ保存し、各ホストがHTTPSで取得する。
+- DNS台帳はゾーン生成に使う。台帳モードでは配布時の接続元認可にも使う。
+- 既存CAで署名した証明書は、検証後に公開ストアへ保存する。
+- 各ホストは公開ストアの証明書をHTTPSで取得する。
 
 ```mermaid
 flowchart LR
@@ -48,46 +56,78 @@ flowchart LR
 | `internal/update` | GitHub Releaseの確認、配布アーカイブの検証、Linux単体バイナリの切り替え |
 | `configs`、`docs`、`assets` | 設定例・systemdユニット例、文書、ブランド資産 |
 
-標準ライブラリを優先する。必要性なしにDB、Kubernetes、メッセージブローカー、外部オーケストレーターを追加しない。小さなパッケージ、contextによる中断、SIGTERM/SIGINTでの正常終了を基本とする。可変グローバル状態と不要なgoroutineを避ける。
+設計方針:
+
+- 標準ライブラリを優先する。
+- 必要性なしにDB、Kubernetes、メッセージブローカー、外部オーケストレーターを追加しない。
+- 小さなパッケージ、contextによる中断、SIGTERM/SIGINTでの正常終了を基本とする。
+- 可変グローバル状態と不要なgoroutineを避ける。
 
 ## CLI契約
 
+### 初期設定と更新
+
 | コマンド | 動作 |
 | --- | --- |
-| `configure dns` | フラグまたは対話入力からDNS設定と任意のSheets取得設定を新規ディレクトリへ生成 |
-| `update [--check]` | GitHubの安定版Releaseを確認し、Linuxの単体バイナリを検証後に更新。 `--check` は版の比較だけを行う |
+| `configure dns` | フラグまたは対話入力から、DNS設定と任意のSheets取得設定を新規ディレクトリへ生成 |
 | `configure server` / `configure client` | サーバー・クライアントの初期設定を新規ディレクトリに生成 |
+| `update [--check]` | GitHubの安定版Releaseを確認し、Linuxの単体バイナリを検証後に更新。`--check` は版の比較だけを行う |
+
+### 配布と配置
+
+| コマンド | 動作 |
+| --- | --- |
 | `server --config PATH` | 設定・保存領域を検証してHTTPS配布を開始 |
 | `server --check-config --config PATH` | 待ち受けせずに設定・TLS鍵ペア・公開ストアを確認 |
 | `pull --config PATH` | 認証、差分取得、検証、配置、reload、失敗時復旧 |
 | `pull --dry-run --config PATH` | 更新予定を表示 |
 | `status --config PATH` | 証明書、SAN、発行者、期限、fingerprint、最終同期、配置状態を表示 |
+
+### 証明書
+
+| コマンド | 動作 |
+| --- | --- |
 | `cert publish --config PATH` | 発行済み証明書と秘密鍵を検証して公開 |
+| `cert renew --config PATH` | `server.yaml` の更新設定を使い、対象証明書を発行・検証・公開 |
 | `cert status --config PATH` | 公開ストアの証明書の期限と状態を確認 |
+
+### DNSと同期
+
+| コマンド | 動作 |
+| --- | --- |
 | `dns fetch --config PATH` | Sheetsから台帳を取得・検証し、キャッシュを更新 |
 | `dns fetch --status --config PATH` | キャッシュと最終成功時刻をオフラインで確認 |
 | `dns sync --config PATH` | 在庫からゾーンを生成し、プレビューまたは検証済み候補を出力 |
-| `pipeline --config PATH` | Sheets取得から検証済みDNS候補生成までを実行。明示した `--apply PATH` で候補をNSDへ反映 |
-| `pipeline --check --config PATH` | ローカルのSheets取得設定、ディレクトリ、NSD設定・コマンドを確認 |
-| `pipeline --once` / `pipeline --watch` | 同じ処理でSheets取得、NSD反映、台帳確定、証明書更新を実行。前者は1回、後者は定期実行 |
-| `dns diff --candidate PATH` | `--zone-dir` の現行または `--baseline` の候補と比較 |
+| `dns diff --candidate PATH` | `--zone-dir` の現行、または `--baseline` の候補と比較 |
 | `dns apply --candidate PATH --zone-dir PATH` | 検証済み候補をNSDに適用し、配信されたserialを確認 |
-| `cert renew --config PATH` | `server.yaml` の更新設定を使った対象証明書の発行・検証・公開 |
+| `pipeline --config PATH` | Sheets取得から検証済みDNS候補の生成までを実行。`--apply PATH` を明示すると候補をNSDへ反映 |
+| `pipeline --check --config PATH` | ローカルのSheets取得設定、ディレクトリ、NSD設定・コマンドを確認 |
+| `pipeline --once` / `pipeline --watch` | Sheets取得、NSD反映、台帳確定、証明書更新を実行。前者は1回、後者は定期実行 |
 
 ### 実行時の動作
 
+**引数と終了コード**
+
 - YAMLを読むコマンドには `--config PATH` を指定する。暗黙のパス探索は行わない。
 - 成功は0、処理失敗は1、引数の不正は2を返す。設定エラーの終了コードはコマンドによって1または2。
-- `--help`、`-h`、`certpouch help [command]` で要求されたヘルプは標準出力に出して0を返す。コマンドの不足・不明や引数の不正で表示する使い方は標準エラーに出して2を返す。
-- `status`はローカルのみを参照する。破損・欠落した配置は非ゼロ終了とする。
-- `pull --dry-run` は認証・メタデータ比較を行い、秘密鍵のダウンロード、ファイル更新、サービス操作、同期時刻更新をしない。実配置の成功は保証しない。
-- Pullは設定に列挙した証明書だけを対象とし、サーバー側の割り当てだけでは新規配置先を作らない。
-- 同じサービスへの複数証明書更新も、証明書単位の処理とする。全証明書をまとめたトランザクションは保証しない。
-- 同時Pullはローカル排他で防ぎ、ロック取得失敗は非ゼロ終了する。
+- `--help`、`-h`、`certpouch help [command]` で要求されたヘルプは標準出力に出し、0を返す。
+- コマンドの不足・不明や引数の不正で表示する使い方は標準エラーに出し、2を返す。
+
+**Pullとstatus**
+
+- `status` はローカルだけを参照する。破損・欠落した配置は非ゼロ終了とする。
+- `pull --dry-run` は認証とメタデータ比較を行う。秘密鍵のダウンロード、ファイル更新、サービス操作、同期時刻更新はしない。実配置の成功は保証しない。
+- Pullは設定に列挙した証明書だけを対象とする。サーバー側の割り当てだけでは新規配置先を作らない。
+- 同じサービスへの複数証明書の更新も、証明書単位で処理する。全証明書をまとめたトランザクションは保証しない。
+- 同時Pullはローカル排他で防ぐ。ロックを取得できなければ非ゼロ終了する。
 - 終了要求後は新規操作を開始せず、安全な処理境界で終了する。切り替え後の復旧責務は[配置仕様](04-certificate-deployment.md)に従う。
 
 ## 対応範囲
 
-自動ルートCA生成、CA秘密鍵のクライアント配布、サーバー応答からの任意コマンド実行は認めない。
+次の動作は認めない。
+
+- ルートCAの自動生成
+- CA秘密鍵のクライアント配布
+- サーバー応答に基づく任意コマンドの実行
 
 Goの最低バージョン、module path、YAMLライブラリは `go.mod` を参照する。サービス配置はLinux/systemdを対象とする。隔離環境での検証範囲は[検証・運用](06-verification-operations.md)を参照する。

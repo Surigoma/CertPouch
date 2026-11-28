@@ -1,69 +1,106 @@
 # CertPouch specification
 
-CertPouch is a single Go binary for self-hosted private DNS, private PKI, and HTTPS pull-based certificate distribution. It uses an existing private CA and runs certificate and DNS activation on Linux. The license is MIT.
+CertPouch is a single Go binary for self-hosted private DNS, private PKI, and HTTPS pull-based certificate distribution. It uses an existing private CA and activates certificates and DNS on Linux. The license is MIT.
 
-The target scope below defines the intended workflow. Subsequent sections and the [detailed specifications](docs/SPEC/README.md) describe the current implementation. [First deployment](docs/quickstart.md) walks through deploying a single certificate.
+How to read this document:
+
+- [Target scope](#target-scope) defines the intended workflow.
+- The remaining sections and the [detailed specifications](docs/SPEC/README.md) describe the current implementation.
+- [First deployment (Japanese)](docs/quickstart.md) walks through automated operation from Sheets and manual deployment of a single certificate.
 
 ## Target scope
 
-An operator registers a hostname, IP address, and optional aliases in Google Sheets. That is the routine input for both DNS and certificate issuance. Adding a host requires no per-host YAML changes or issuance flag.
+An operator registers a hostname, an IP address, and optional aliases in Google Sheets. That single entry is the routine input for both DNS and certificate issuance. Adding a host requires no per-host YAML change and no issuance flag.
 
-1. Poll Sheets at a configurable interval, targeting reflection within a few minutes in normal operation. Account for API quotas and back off on quota errors and transient failures. A future webhook may trigger the same synchronization sooner.
-2. Prepare managed NSD zones at startup from the configured IP ranges. Apply range changes by restarting CertPouch. During regular synchronization, update records within the prepared zones and confirm DNS activation before reconciling certificate issuance, renewal, and availability.
-3. Use an existing CA and a shared issuance policy. Issue a separate certificate and private key for each hostname and each alias. Authorized receiving servers pull the names they need over HTTPS. Local placement can optionally trigger a configured service action or command.
-4. After DNS removal is confirmed, stop new retrieval and automatic renewal for the removed name. Previously deployed certificates may remain in service until expiry. Immediate revocation, such as for a compromised key, is a separate operation.
+1. **Poll Sheets** at a configurable interval, aiming to reflect changes within a few minutes. Respect API quotas and back off on quota errors and transient failures. A future webhook may trigger the same synchronization sooner.
+2. **Prepare NSD zones at startup** from the configured IP ranges. Range changes take effect when CertPouch restarts. Regular synchronization updates records inside the prepared zones and confirms DNS activation before it reconciles certificate issuance, renewal, and availability.
+3. **Issue one certificate per name.** Use an existing CA and a shared issuance policy. Each hostname and each alias gets its own certificate and private key. Authorized receiving servers pull the names they need over HTTPS. Local placement can trigger a configured service action or command.
+4. **Stop serving removed names** after DNS removal is confirmed: no new retrieval and no automatic renewal. Certificates already deployed may stay in service until they expire. Immediate revocation, for example after a key compromise, is a separate operation.
 
-If certificate issuance fails after successful DNS activation, keep the active DNS records and retry issuance for the affected name on the next scheduled synchronization, even if DNS records are unchanged.
+If certificate issuance fails after DNS activation succeeded, keep the active DNS records. Retry issuance for that name on the next scheduled synchronization, even if the DNS records did not change.
 
-Inventory membership identifies issuance targets. Retrieval always requires client authentication. Configure per-client retrieval restrictions using the inventory source IP match, a certificate name allowlist, both, or explicitly neither. Source IP matching is the default. Valid inventory changes are not blocked by a removal or replacement count threshold. See the [target workflow specification](docs/SPEC/08-inventory-workflow.md).
+Authorization rules:
+
+- Inventory membership decides which names are issued.
+- Retrieval always requires client authentication.
+- Each client can be restricted by inventory source IP match (the default), a certificate name allowlist, both, or explicitly neither.
+- A valid inventory change is never blocked by a threshold on removed or replaced records.
+
+See the [target workflow specification](docs/SPEC/08-inventory-workflow.md).
 
 ### Current implementation gap
 
-The current CLI supports periodic synchronization with `pipeline --watch` and optional startup registration through a dedicated NSD include. The [server configuration example](configs/server.example.yaml) shows the v2 layout. The inventory cache is updated after DNS confirmation, and distribution reflects changes on its configured refresh intervals.
+- `pipeline --watch` provides periodic synchronization. Startup zone registration is available through a dedicated NSD include.
+- The [server configuration example](configs/server.example.yaml) shows the v2 layout.
+- The inventory cache is updated after DNS confirmation. Distribution reflects the change on its configured refresh interval.
 
 ## Components and data flow
 
-- Google Sheets, an existing Sheets JSON cache, or CSV exports provide DNS inventory. CertPouch can fetch the Sheets cache with a read-only service account. An existing cache or CSV can be used locally without Google access.
-- DNS inventory drives NSD zone generation and, in DNS inventory mode, source IP authorization for distribution.
-- Administrators publish an existing certificate or issue one using a configured RSA CA. The distribution server loads validated generations from a local store. The signing key stays with the issuance process.
-- Each receiving host retrieves only authorized certificates over HTTPS. It validates the downloaded generation, switches its local `current` link, and runs the systemd action or command configured on that host.
-- The CLI lives in `cmd/certpouch`. Internal packages cover YAML configuration, HTTPS server and distribution, the pull client, PKI, DNS, Sheets access, storage, and deployment. The Go requirement and module dependencies are in [go.mod](go.mod).
+| Component | Role |
+| --- | --- |
+| Inventory | Google Sheets, an existing Sheets JSON cache, or CSV exports. CertPouch can fetch the Sheets cache with a read-only service account. A cache or CSV works locally without Google access. |
+| DNS | The inventory drives NSD zone generation. In DNS inventory mode it also drives source IP authorization for distribution. |
+| PKI | Administrators publish an existing certificate or issue one with a configured RSA CA. The signing key stays with the issuance process. |
+| Distribution server | Loads validated generations from a local store and serves them over HTTPS. |
+| Receiving host | Retrieves only authorized certificates, validates the downloaded generation, switches its local `current` link, and runs the systemd action or command configured on that host. |
 
-See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
+The CLI lives in `cmd/certpouch`. Internal packages cover YAML configuration, the HTTPS server and distribution, the pull client, PKI, DNS, Sheets access, storage, and deployment. The Go version and module dependencies are in [go.mod](go.mod). See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 
 ## Command reference
 
 | Command | Behavior |
 | --- | --- |
-| `install.sh` / `uninstall.sh` | On Linux, installs or removes the binary while preserving configuration, credentials, certificates, state, and systemd units. |
-| `certpouch update [--check]` | Checks the latest stable GitHub Release and atomically updates a standalone Linux executable after verification. |
-| `certpouch configure dns` | Creates validated DNS and optional Sheets-fetch configuration from flags or interactive prompts without overwriting existing files. |
-| `certpouch configure client` | Generates and validates a client YAML, random token, SHA-256 token hash, and deployment directory under a new output directory on Linux. |
-| `certpouch configure server` | Generates and validates a server YAML and publication store from the client hash, TLS files, and existing DNS inventory. |
+| `install.sh` / `uninstall.sh` | Installs or removes the Linux binary while preserving configuration, credentials, certificates, state, and systemd units. |
+| `certpouch update [--check]` | Checks the latest stable GitHub Release and atomically replaces a standalone Linux executable after verification. |
+| `certpouch configure dns` | Creates validated DNS and optional Sheets-fetch configuration from flags or prompts. Never overwrites existing files. |
+| `certpouch configure client` | Creates a client YAML, random token, SHA-256 token hash, and deployment directory under a new output directory on Linux. |
+| `certpouch configure server` | Creates a server YAML and publication store from the client hash, TLS files, and existing DNS inventory. |
 | `certpouch server --config PATH` | Loads validated publications and serves the HTTPS API. `--check-config` validates without opening the listener. |
-| `certpouch pull --config PATH` | Compares authorized inventory with local state, downloads updates, validates them, and deploys them. `--dry-run` previews without fetching private keys or making changes. |
-| `certpouch status --config PATH` | Reports local deployment and synchronization state, without contacting the server. |
-| `certpouch cert publish --config PATH` | Registers a validated leaf certificate, private key and optional intermediate chain. |
-| `certpouch cert renew --config PATH` | Issues missing certificates or renews certificates using the renewal section in `server.yaml`. Supports `--dry-run`. |
-| `certpouch cert status --config PATH` | Checks local published leaf certificates and expiry. |
+| `certpouch pull --config PATH` | Compares authorized inventory with local state, then downloads, validates, and deploys updates. `--dry-run` previews without fetching private keys or changing anything. |
+| `certpouch status --config PATH` | Reports local deployment and synchronization state without contacting the server. |
+| `certpouch cert publish --config PATH` | Registers a validated leaf certificate, private key, and optional intermediate chain. |
+| `certpouch cert renew --config PATH` | Issues missing certificates and renews expiring ones using the `certificates` section. Supports `--dry-run`. |
+| `certpouch cert status --config PATH` | Checks published leaf certificates and their expiry. |
 | `certpouch dns fetch --config PATH` | Fetches and validates a Sheets cache. `--status` reads the local cache state. |
-| `certpouch pipeline --config PATH` | Refreshes the Sheets cache and prints the path to a validated DNS candidate. |
-| `certpouch pipeline --config PATH --apply CANDIDATE` | Applies the selected candidate to initialized NSD deployment. |
-| `certpouch dns sync --config PATH` | Renders a preview with `--dry-run` or creates an NSD-validated candidate with `--stage-dir`. |
+| `certpouch pipeline --config PATH` | Refreshes the Sheets cache and prints the path of a validated DNS candidate. |
+| `certpouch pipeline --config PATH --apply CANDIDATE` | Applies the selected candidate to an initialized NSD deployment. |
+| `certpouch dns sync --config PATH` | Renders a preview with `--dry-run`, or creates an NSD-validated candidate with `--stage-dir`. |
 | `certpouch dns diff --candidate PATH` | Compares a candidate with a managed `--zone-dir` or a staged `--baseline`. |
 | `certpouch dns apply --candidate PATH --zone-dir PATH` | Initializes the managed snapshot with `--initialize`, or updates NSD and verifies the served SOA serials. |
 
-Use subcommand `--help` or `certpouch help <command>` for the full flag list; requested help is written to stdout. Configuration paths are explicit. See the [CLI contract](docs/SPEC/01-scope-architecture.md#cli契約), [configuration command](docs/configure.md), and [examples for common commands](docs/quickstart.md#普段使うコマンド).
+- Run `certpouch help <command>` or `--help` for the full flag list. Requested help goes to stdout.
+- Configuration paths are always explicit.
+- See the [CLI contract](docs/SPEC/01-scope-architecture.md#cli契約), the [configuration command](docs/configure.md), and [common command examples (Japanese)](docs/manual-distribution.md#普段使うコマンド).
 
-Release archives include Linux-only installation and removal scripts. They install only the executable and their management metadata; operational data and systemd configuration are intentionally preserved. See [Linux installation](docs/linux-installation.md).
+Release archives include Linux-only installation and removal scripts. They install only the executable and its management metadata, and they intentionally leave operational data and systemd configuration alone. See [Linux installation](docs/linux-installation.md).
 
 ## Configuration and authorization
 
-Use `server.yaml` for the server workflow and `client.yaml` on each receiving host. `server.yaml` has four sections: `inventory` (cache or CSV and the Sheets source), `dns` (zones and the managed NSD), `certificates` (the existing CA, store, and issued names), and `distribution` (HTTPS API and clients). Without `certificates.targets`, every inventory name is issued; with targets, only the listed names are distributed. CertPouch v1 top-level keys such as `server`, `storage`, `dns_inventory`, and `pipeline` are rejected with the v2 key to move them to. See the [configuration guide](docs/configure.md).
+Use `server.yaml` on the server and `client.yaml` on each receiving host. `server.yaml` has four sections:
 
-The YAML loaders reject unknown and duplicate keys. A first distribution setup uses one [server YAML](configs/server.example.yaml) and one [client YAML](configs/client.example.yaml) per receiving host. DNS generation, Sheets fetching, and CA renewal are sections of the same server YAML; only the optional runtime revocation list is a separate file.
+| Section | Contents |
+| --- | --- |
+| `inventory` | Cache or CSV files, and the Sheets source |
+| `dns` | Zones and the managed NSD |
+| `certificates` | The existing CA, the store, and the issued names |
+| `distribution` | The HTTPS API and its clients |
 
-The receiving host holds the token. The server reads its SHA-256 digest through `distribution.clients[].token_hash_file` and compares it in constant time. The client reads the token through `client.token_file`. In DNS inventory mode the server checks the TCP source IP against the certificate's logical name and any explicit per-client certificate exceptions. Static mode uses IP/CIDR allowlists and certificate assignments. Forwarding headers are ignored. Optional mTLS adds client certificate validation and fingerprint binding. Runtime revocation can deny a client ID or mTLS fingerprint.
+- Without `certificates.targets`, every inventory name is issued. With targets, only the listed names are distributed.
+- CertPouch v1 top-level keys such as `server`, `storage`, `dns_inventory`, and `pipeline` are rejected, and the error names the v2 key to use.
+- The YAML loaders reject unknown and duplicate keys.
+- Only the optional runtime revocation list lives outside these two files.
+
+See the [configuration guide](docs/configure.md), the [server YAML example](configs/server.example.yaml), and the [client YAML example](configs/client.example.yaml).
+
+### Authentication and authorization
+
+- The receiving host holds the token and reads it from `client.token_file`.
+- The server reads only its SHA-256 digest from `distribution.clients[].token_hash_file` and compares it in constant time.
+- In DNS inventory mode, the server checks the TCP source IP against the certificate's logical name and any per-client certificate exceptions.
+- Static mode uses IP/CIDR allowlists and certificate assignments.
+- Forwarding headers are ignored.
+- Optional mTLS adds client certificate validation and fingerprint binding.
+- The runtime revocation list can deny a client ID or an mTLS fingerprint.
 
 Use documentation-only addresses and domains in examples. Restrict access to configuration, credentials, and signing keys. See [configuration](docs/SPEC/02-configuration.md), [DNS authorization](docs/dns-inventory.md), [mTLS](docs/mtls.md), and [revocation](docs/client-revocation.md).
 
@@ -72,28 +109,44 @@ Use documentation-only addresses and domains in examples. Restrict access to con
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/health` | Reports server health, including publication and inventory refresh failures and configured inventory expiry. |
-| `GET /api/v1/certificates` | Lists authorized current certificates and metadata. |
+| `GET /api/v1/certificates` | Lists authorized current certificates and their metadata. |
 | `GET /api/v1/certificates/{name}/metadata` | Returns metadata for a certificate's current generation. |
-| `GET /api/v1/certificates/{name}/download?version={version}` | Returns the explicitly requested generation and its artifact hashes. |
+| `GET /api/v1/certificates/{name}/download?version={version}` | Returns the requested generation and its artifact hashes. |
 
-TLS 1.2 or later is required. The client verifies the server name and configured TLS CA. Distribution requests use a bearer token and client ID. The API returns JSON; the leaf, chain, and private key are separate artifacts. Logs record distribution outcomes without secrets. See the [API contract](docs/SPEC/03-distribution-api.md).
+- TLS 1.2 or later is required. The client verifies the server name against the configured TLS CA.
+- Requests carry a bearer token and a client ID.
+- Responses are JSON. The leaf, chain, and private key are separate artifacts.
+- Logs record distribution outcomes without secrets.
+
+See the [API contract](docs/SPEC/03-distribution-api.md).
 
 ## Certificate validation, deployment, and renewal
 
-Before publication and deployment, CertPouch validates the leaf and key, validity period, DNS/IP SAN set, direct issuer, intermediate chain, and explicit Server Authentication EKU. Distributed keys are RSA, at least 2048 bits, in unencrypted PKCS#1 or PKCS#8 PEM. The CA private key is never part of a distributed bundle.
+**Validation.** Before publication and before deployment, CertPouch checks the leaf and key pair, the validity period, the DNS/IP SAN set, the direct issuer, the intermediate chain, and an explicit Server Authentication EKU. Distributed keys are RSA, at least 2048 bits, in unencrypted PKCS#1 or PKCS#8 PEM. The CA private key is never part of a distributed bundle.
 
-The server and client keep immutable version directories with atomically switched `current` links. The client verifies the artifact hashes and local policy before switching. An unchanged generation skips file changes and activation. Activation uses a locally configured systemd `reload` or `restart`, or a local executable with an explicit argument list. Both modes can verify the TLS endpoint's leaf fingerprint. Activation failure triggers rollback and repeats the configured operation when an older generation is available. Failed recovery and failed first activation leave a record for manual recovery.
+**Deployment.**
 
-Renewal uses Go's X.509 implementation and an existing RSA CA. It creates a new leaf key, validates the issued bundle, then publishes it. If the CA key uses supported encrypted PEM, OpenSSL decrypts it in memory using a protected file descriptor for the passphrase. No new root CA is generated. See [deployment](docs/SPEC/04-certificate-deployment.md) and [renewal](docs/certificate-renewal.md).
+- The server and client keep immutable version directories and switch a `current` link atomically.
+- The client verifies the artifact hashes and its local policy before switching. An unchanged generation causes no file change and no activation.
+- Activation is a locally configured systemd `reload` or `restart`, or a local executable with an explicit argument list. Either can verify the leaf fingerprint served by the TLS endpoint.
+- If activation fails and an older generation exists, the client rolls back and repeats the configured operation. Failed recovery and failed first activation leave a record for manual recovery.
+
+**Renewal.** Renewal uses Go's X.509 implementation and an existing RSA CA. It creates a new leaf key, validates the issued bundle, and then publishes it. For a supported encrypted PEM CA key, OpenSSL decrypts it in memory and reads the passphrase from a protected file descriptor. No new root CA is ever generated.
+
+See [deployment](docs/SPEC/04-certificate-deployment.md) and [renewal](docs/certificate-renewal.md).
 
 ## NSD deployment
 
-CertPouch generates forward and IPv4 reverse candidates from inventory and configured static records. The staging command runs `nsd-checkzone`. The apply command validates the candidate and rollback generations, checks the active serials, atomically switches the snapshot link, reloads affected zones, and confirms the new serials over loopback TCP. Failed activation restores the old records with newer serials when possible. Zone membership changes are configured separately in NSD. See [DNS and private PKI](docs/SPEC/05-dns-pki.md) and the [NSD guide](docs/dns-sync.md).
+1. CertPouch generates forward and IPv4 reverse candidates from the inventory and configured static records.
+2. The staging command runs `nsd-checkzone`.
+3. The apply command validates the candidate and rollback generations, checks the active serials, switches the snapshot link atomically, reloads the affected zones, and confirms the new serials over loopback TCP.
+4. If activation fails, it restores the old records with newer serials when possible.
+
+Zone membership changes are configured separately in NSD. See [DNS and private PKI](docs/SPEC/05-dns-pki.md) and the [NSD guide](docs/dns-sync.md).
 
 ## Verification, releases, and branding
 
-Local verification uses Go tests and vet, with race testing for shared state. Integration tests use generated test CAs and isolated services. Before migrating an existing deployment, verify the real inventory, NSD configuration, service permissions, CA protection, and backup recovery using the [acceptance guide](docs/release-and-acceptance.md).
-
-GitHub Actions verifies the code. Release Please maintains a release PR and creates a tag and draft release after that PR is merged. The workflow verifies and attaches the Linux amd64 and arm64 archives and checksums before publishing the stable release. Manual rebuilds of existing drafts leave their publication state unchanged.
-
-Brand source assets, generated PNGs, and the MIT license are documented in the [brand specification](docs/SPEC/07-brand.md).
+- **Local verification** uses Go tests and vet, plus race testing for shared state. Integration tests use generated test CAs and isolated services.
+- **Before migrating** an existing deployment, verify the real inventory, NSD configuration, service permissions, CA protection, and backup recovery with the [acceptance guide](docs/release-and-acceptance.md).
+- **Releases:** GitHub Actions verifies the code. Release Please maintains a release PR and creates a tag and a draft release once that PR is merged. The workflow verifies and attaches the Linux amd64 and arm64 archives and checksums, then publishes the stable release. Manual rebuilds of existing drafts leave their publication state unchanged.
+- **Branding:** brand source assets, generated PNGs, and the MIT license are described in the [brand specification](docs/SPEC/07-brand.md).
