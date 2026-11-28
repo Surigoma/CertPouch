@@ -281,8 +281,25 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 		client.InventoryExpiresAt = inventoryExpires
 		result.Clients = append(result.Clients, client)
 	}
+	entries := doc.Clients
+	if inventory != nil && defaultAuth == distribution.AuthIP {
+		// With ip as the server default, inventory hosts can fetch the names
+		// whose inventory address matches their source without registration.
+		implicit := clientDocument{Enabled: true, Auth: distribution.AuthIP}
+		client, err := implicit.client(result.Policies, inventory, result.InventoryCertificates)
+		if err != nil {
+			return Server{}, fmt.Errorf("distribution implicit ip client: %w", err)
+		}
+		client.Implicit = true
+		if err := client.ValidateAuthentication(); err != nil {
+			return Server{}, fmt.Errorf("distribution implicit ip client: %w", err)
+		}
+		client.InventoryExpiresAt = inventoryExpires
+		result.Clients = append(result.Clients, client)
+		entries = append(append([]clientDocument(nil), doc.Clients...), implicit)
+	}
 	if result.InventoryCertificates {
-		source, entries, baseline := *doc.DNSInventory, doc.Clients, result.Clients
+		source, baseline := *doc.DNSInventory, result.Clients
 		result.ReloadInventoryPublications = func() (map[string]pki.Policy, []distribution.Client, error) {
 			var expires time.Time
 			inventory, err := source.loadWithExpiry(&expires)
@@ -294,7 +311,7 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 			return policies, clients, err
 		}
 	} else if result.InventoryRefresh != 0 {
-		result.ReloadInventoryClients = inventoryClientLoader(*doc.DNSInventory, doc.Clients, result.Clients, result.Policies)
+		result.ReloadInventoryClients = inventoryClientLoader(*doc.DNSInventory, entries, result.Clients, result.Policies)
 	}
 	return result, nil
 }

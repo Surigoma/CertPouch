@@ -148,6 +148,70 @@ func TestTokenlessDistributionAuthentication(t *testing.T) {
 	}
 }
 
+func TestImplicitInventoryIPClient(t *testing.T) {
+	now := time.Now()
+	publication := testPublication(t, now)
+	rules := map[string][]netip.Prefix{publication.Name: {netip.MustParsePrefix("192.0.2.10/32")}}
+	implicit := Client{Enabled: true, Auth: AuthIP, Implicit: true, CertificateIPs: rules}
+	disabled := Client{ID: "disabled", Enabled: false, Auth: AuthIP, CertificateIPs: rules}
+	h, err := newHandler([]Publication{publication}, []Client{implicit, disabled}, nil, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/certificates/" + publication.Name + "/download?version=" + publication.Version
+	for _, tc := range []struct {
+		name, remote string
+		ids          []string
+		bearer       bool
+		want         int
+	}{
+		{"no ID from inventory IP", "192.0.2.10:1234", nil, false, http.StatusOK},
+		{"unregistered ID from inventory IP", "192.0.2.10:1234", []string{"web-server-01"}, false, http.StatusOK},
+		{"no ID from other IP", "192.0.2.11:1234", nil, false, http.StatusUnauthorized},
+		{"registered disabled ID stays rejected", "192.0.2.10:1234", []string{disabled.ID}, false, http.StatusUnauthorized},
+		{"token is not accepted", "192.0.2.10:1234", nil, true, http.StatusUnauthorized},
+		{"duplicate ID headers", "192.0.2.10:1234", []string{"a", "b"}, false, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, path, nil)
+			r.RemoteAddr = tc.remote
+			r.TLS = &tls.ConnectionState{}
+			for _, id := range tc.ids {
+				r.Header.Add("X-CertPouch-Client-ID", id)
+			}
+			if tc.bearer {
+				r.Header.Set("Authorization", "Bearer "+strings.Repeat("A", 43))
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d", w.Code, tc.want)
+			}
+		})
+	}
+	withoutImplicit, err := h.WithClients([]Client{disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, path, nil)
+	r.RemoteAddr, r.TLS = "192.0.2.10:1234", &tls.ConnectionState{}
+	w := httptest.NewRecorder()
+	withoutImplicit.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("request without ID and without implicit client returned %d", w.Code)
+	}
+	for name, invalid := range map[string][]Client{
+		"duplicate":    {implicit, implicit},
+		"token":        {{Enabled: true, Auth: AuthToken, Implicit: true, CertificateIPs: rules}},
+		"with ID":      {{ID: "named", Enabled: true, Auth: AuthIP, Implicit: true, CertificateIPs: rules}},
+		"static rules": {{Enabled: true, Auth: AuthIP, Implicit: true, AllowedIPs: []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}, AllowedCertificates: []string{publication.Name}}},
+	} {
+		if _, err := h.WithClients(invalid); err == nil {
+			t.Errorf("accepted invalid implicit client: %s", name)
+		}
+	}
+}
+
 func TestDistributionAPI(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	current := testPublication(t, now)

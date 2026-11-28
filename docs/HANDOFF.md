@@ -45,7 +45,7 @@
 
 - DNS台帳モードでは、Google Sheetsの既存キャッシュにある証明書名と接続元IPの一致で取得を認可する。別ホストへの許可は、クライアント・証明書単位の例外設定で追加する。[DNS台帳の設定手順](dns-inventory.md)
 - `dns fetch` は、キャッシュと照合できる最終成功記録を保存する。`dns fetch --status` はその状態をローカルで表示する。`inventory.max_age` は、期限切れの台帳による新規配布要求を拒否する。[キャッシュの期限管理](dns-inventory.md)
-- 配布の認証方式は `distribution.auth` と `distribution.clients[].auth` で `token`・`mtls`・`ip` から選べる。[配布クライアントと認証方式](distribution-clients.md)
+- 配布の認証方式は `distribution.auth` と `distribution.clients[].auth` で `token`・`mtls`・`ip` から選べる。台帳モードで `distribution.auth: ip` なら、`clients` に登録していないホストも台帳IP一致で取得できる。[配布クライアントと認証方式](distribution-clients.md)
 - 配布APIはオプションでmTLSを使える。クライアント証明書のCA検証と、クライアントIDへのフィンガープリント照合を行い、従来のトークン・IP認可も維持する。[mTLSの設定](mtls.md)
 - オプションの失効リストで、クライアントIDまたはmTLSリーフを、配布サーバーの再起動なしで拒否できる。[失効の設定](client-revocation.md)
 

@@ -2,7 +2,7 @@ server:
   url: "https://cert-server.example.internal:8443"
   ca_file: "/etc/ssl/certpouch/server-ca.crt"
 client:
-  id: "web-server-01"
+  id: "web-server-01" # Optional only with auth ip against an inventory ip server.
   auth: "token" # Match the server client entry. For ip or mtls, omit token_file.
   token_file: "/etc/certpouch/client.token"
   # Supply both paths if the distribution server requires mTLS.

@@ -62,6 +62,8 @@ certificates:
 # 4. Distribution: the HTTPS API that pull clients use.
 distribution:
   # Default for all clients. Each client can override this with its own auth.
+  # With "ip" and an inventory, unlisted hosts can also fetch the names whose
+  # inventory address matches their source IP.
   auth: "token"
   listen: "192.0.2.53:8443"
   refresh_interval: "5s"
