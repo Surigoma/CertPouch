@@ -137,3 +137,22 @@ jobs:
           (cd dist && sha256sum -c SHA256SUMS)
           gh release upload "$RELEASE_TAG" --clobber \
             dist/certpouch-linux-amd64.tar.gz dist/certpouch-linux-arm64.tar.gz dist/SHA256SUMS
+      - name: Publish verified stable release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.package.outputs.tag }}
+        run: |
+          release_id=$(gh release view "$RELEASE_TAG" --json databaseId,isDraft,isPrerelease,assets --jq '
+            select(.isDraft and (.isPrerelease | not))
+            | select(([.assets[] | select(.state == "uploaded") | .name] | sort)
+                == ["SHA256SUMS", "certpouch-linux-amd64.tar.gz", "certpouch-linux-arm64.tar.gz"])
+            | .databaseId
+          ')
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::Release $RELEASE_TAG is not a stable draft with all verified assets attached"
+            exit 1
+          fi
+          gh api --method PATCH "repos/$GH_REPO/releases/$release_id" \
+            -F draft=false -f make_latest=legacy --jq .html_url
