@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/Surigoma/CertPouch/compare/v2.0.0...v2.0.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* default Gin to release mode ([5451fe0](https://github.com/Surigoma/CertPouch/commit/5451fe0a3649582e1ea46275c6bc14115cdb053a))
+* default Gin to release mode ([25af4cf](https://github.com/Surigoma/CertPouch/commit/25af4cf4ce6ff9a71a39d0dd8928457e3b37abf7))
+
 ## [2.0.0](https://github.com/Surigoma/CertPouch/compare/v1.0.0...v2.0.0) (2026-11-28)
 
 
