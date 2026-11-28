@@ -18,13 +18,14 @@ import (
 
 // PublicationHandler swaps validated catalog and authorization snapshots between requests.
 type PublicationHandler struct {
-	current          atomic.Pointer[distribution.Handler]
-	storeUnavailable atomic.Bool
-	update           sync.Mutex
-	clients          []distribution.Client
-	loaded           []publicationDigest
-	logger           *slog.Logger
-	revocations      *distribution.RevocationPolicy
+	current              atomic.Pointer[distribution.Handler]
+	storeUnavailable     atomic.Bool
+	inventoryUnavailable atomic.Bool
+	update               sync.Mutex
+	clients              []distribution.Client
+	loaded               []publicationDigest
+	logger               *slog.Logger
+	revocations          *distribution.RevocationPolicy
 }
 
 func NewPublicationHandler(publications []distribution.Publication, clients []distribution.Client, logger *slog.Logger) (*PublicationHandler, error) {
@@ -45,11 +46,17 @@ func NewPublicationHandlerWithRevocations(publications []distribution.Publicatio
 }
 
 func (h *PublicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.TLS != nil && r.Method == http.MethodGet && r.URL.Path == distribution.HealthPath && h.storeUnavailable.Load() {
+	storeUnavailable := h.storeUnavailable.Load()
+	if r.TLS != nil && r.Method == http.MethodGet && r.URL.Path == distribution.HealthPath &&
+		(storeUnavailable || h.inventoryUnavailable.Load()) {
+		message := "DNS inventory unavailable"
+		if storeUnavailable {
+			message = "publication store unavailable"
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte("{\"error\":{\"code\":\"unavailable\",\"message\":\"publication store unavailable\"}}\n"))
+		_, _ = fmt.Fprintf(w, "{\"error\":{\"code\":\"unavailable\",\"message\":%q}}\n", message)
 		return
 	}
 	h.current.Load().ServeHTTP(w, r)
@@ -111,6 +118,7 @@ func (h *PublicationHandler) WatchInventoryPublications(ctx context.Context, int
 				return clients, nil
 			}))
 		}
+		h.inventoryUnavailable.Store(false)
 		return nil
 	})
 }
@@ -137,10 +145,11 @@ func (h *PublicationHandler) WatchInventory(ctx context.Context, interval time.D
 	h.watch(ctx, interval, "DNS inventory authorization unavailable", func() error { return h.refreshInventory(load) })
 }
 
-func (h *PublicationHandler) refreshInventory(load func() ([]distribution.Client, error)) error {
+func (h *PublicationHandler) refreshInventory(load func() ([]distribution.Client, error)) (refreshErr error) {
 	clients, loadErr := load()
 	h.update.Lock()
 	defer h.update.Unlock()
+	defer func() { h.inventoryUnavailable.Store(refreshErr != nil) }()
 	if loadErr != nil {
 		clients = nil
 	}

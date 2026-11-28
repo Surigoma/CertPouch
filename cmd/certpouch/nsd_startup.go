@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,25 +13,24 @@ import (
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/config"
-	"github.com/Surigoma/CertPouch/internal/dns"
 )
 
 const managedNSDHeader = "# Managed by CertPouch\n"
 
-func prepareNSD(ctx context.Context, deployment config.DNSDeployment, candidate string, control nsdCommands) error {
+func nsdReconfigure(deployment config.DNSDeployment, control nsdCommands) (func(context.Context, []string) error, error) {
 	include := filepath.Clean(deployment.NSDInclude)
 	if !filepath.IsAbs(include) || include == filepath.Clean(deployment.NSDConfig) {
-		return fmt.Errorf("NSD include_file must be an absolute dedicated include path")
+		return nil, fmt.Errorf("NSD include_file must be an absolute dedicated include path")
 	}
 	checkConfig, err := exec.LookPath("nsd-checkconf")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, err = readManagedNSDInclude(include)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	reconfigure := func(ctx context.Context, names []string) error {
+	return func(ctx context.Context, names []string) error {
 		var body strings.Builder
 		body.WriteString(managedNSDHeader)
 		for _, name := range names {
@@ -56,12 +56,7 @@ func prepareNSD(ctx context.Context, deployment config.DNSDeployment, candidate 
 			}
 		}
 		return exec.CommandContext(ctx, control.controller, "-c", control.config, "reconfig").Run()
-	}
-	err = dns.PrepareZones(ctx, deployment.ZoneDir, candidate, control, reconfigure)
-	if err != nil {
-		return fmt.Errorf("prepare NSD zones using %s: %w", include, err)
-	}
-	return nil
+	}, nil
 }
 
 func readManagedNSDInclude(path string) ([]byte, error) {
@@ -108,5 +103,12 @@ func replaceNSDInclude(path string, content []byte) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), path)
+	if err := os.Rename(file.Name(), path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	return errors.Join(dir.Sync(), dir.Close())
 }

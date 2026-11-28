@@ -61,6 +61,17 @@ func TestPrepareZonesRollsBackMembership(t *testing.T) {
 	if len(control.active) != 2 {
 		t.Fatal("new zone was not registered")
 	}
+	// Simulate an exit after the link and NSD membership changed, before commit.
+	lock := filepath.Join(root, ".dns-apply-lock")
+	if err := recordDNSChange(lock, "startup-recovery", before, mustReadCurrent(t, root)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecoverZones(t.Context(), root, control, apply); err != nil {
+		t.Fatal(err)
+	}
+	if mustReadCurrent(t, root) != before || len(control.active) != 1 || control.active["example.internal"] != 1 {
+		t.Fatal("startup recovery did not restore the previous zone set")
+	}
 }
 
 func (c *testControl) Reload(_ context.Context, zone string) error {
@@ -148,6 +159,63 @@ func TestActivateRestoresPreviousRecordsWithNewSerial(t *testing.T) {
 	if _, err := Activate(t.Context(), root, candidate("192.0.2.12", 4), ActivationOptions{}, control); err != nil {
 		t.Fatalf("retry with a newer serial: %v", err)
 	}
+
+	t.Run("interrupted after only one zone was reloaded", func(t *testing.T) {
+		ctx := t.Context()
+		prior := mustReadCurrent(t, root)
+		old, err := readManagedSnapshot(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next, err := readSnapshot(candidate("192.0.2.13", 5))
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, restored, err := planActivation(old, next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		newTarget, err := saveSnapshot(ctx, root, next, control)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rollback, err := saveSnapshot(ctx, root, restored, control)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lock := filepath.Join(root, ".dns-apply-lock")
+		if err := recordDNSChange(lock, "recovery", prior, newTarget, rollback); err != nil {
+			t.Fatal(err)
+		}
+		if err := switchSnapshot(root, lock, newTarget); err != nil {
+			t.Fatal(err)
+		}
+		if err := control.Reload(ctx, changed[0]); err != nil {
+			t.Fatal(err)
+		}
+		other := changed[1]
+		previousSerial := control.active[other]
+		control.active[other] = 100
+		if err := RecoverZones(ctx, root, control, nil); err == nil || !strings.Contains(err.Error(), "outside the recovery record") {
+			t.Fatalf("unexpected SOA serial was accepted: %v", err)
+		}
+		if mustReadCurrent(t, root) != newTarget {
+			t.Fatal("unknown SOA serial changed the active snapshot")
+		}
+		control.active[other] = previousSerial
+		if err := RecoverZones(ctx, root, control, nil); err != nil {
+			t.Fatal(err)
+		}
+		if current := mustReadCurrent(t, root); current != rollback {
+			t.Fatalf("recovered generation = %s, want %s", current, rollback)
+		}
+		if err := confirmServed(ctx, control, restored); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Activate(ctx, root, candidate("192.0.2.13", 7), ActivationOptions{}, control); err != nil {
+			t.Fatalf("sync after recovery: %v", err)
+		}
+	})
 }
 
 func mustReadCurrent(t *testing.T, root string) string {

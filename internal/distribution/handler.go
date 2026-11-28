@@ -34,12 +34,13 @@ type Client struct {
 }
 
 type Handler struct {
-	router      *gin.Engine
-	catalog     catalog
-	clients     map[string]Client
-	logger      *slog.Logger
-	now         func() time.Time
-	revocations *RevocationPolicy
+	router             *gin.Engine
+	catalog            catalog
+	clients            map[string]Client
+	logger             *slog.Logger
+	now                func() time.Time
+	revocations        *RevocationPolicy
+	inventoryExpiresAt time.Time
 }
 
 func NewHandler(publications []Publication, clients []Client, logger *slog.Logger) (*Handler, error) {
@@ -119,6 +120,10 @@ func (h *Handler) WithClients(clients []Client) (*Handler, error) {
 			}
 		}
 		next.clients[client.ID] = client
+		if expires := client.InventoryExpiresAt; !expires.IsZero() &&
+			(next.inventoryExpiresAt.IsZero() || expires.Before(next.inventoryExpiresAt)) {
+			next.inventoryExpiresAt = expires
+		}
 	}
 	router, err := next.newRouter()
 	if err != nil {
@@ -147,6 +152,10 @@ func (h *Handler) newRouter() (*gin.Engine, error) {
 	router.RedirectFixedPath = false
 	router.Use(h.checkRequest)
 	router.GET(HealthPath, func(c *gin.Context) {
+		if !h.inventoryExpiresAt.IsZero() && !h.now().Before(h.inventoryExpiresAt) {
+			writeError(c.Writer, http.StatusServiceUnavailable, "unavailable")
+			return
+		}
 		writeJSON(c.Writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	router.GET(inventoryPath, h.inventory)

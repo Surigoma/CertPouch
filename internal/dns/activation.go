@@ -93,16 +93,14 @@ func Activate(ctx context.Context, root, candidate string, options ActivationOpt
 	if err := managedDirectory(root); err != nil {
 		return "", err
 	}
-	lock, err := acquireActivationLock(root)
+	lock, guard, err := acquireActivationLock(root)
 	if err != nil {
 		return "", err
 	}
-	preserve := false
-	defer func() {
-		if !preserve {
-			err = errors.Join(err, releaseActivationLock(root, lock))
-		}
-	}()
+	defer func() { err = errors.Join(err, guard.Close()) }()
+	if err := recoverZones(ctx, root, lock, control, nil); err != nil {
+		return "", err
+	}
 	newZones, err := readSnapshot(candidate)
 	if err != nil {
 		return "", fmt.Errorf("read candidate snapshot: %w", err)
@@ -155,14 +153,9 @@ func Activate(ctx context.Context, root, candidate string, options ActivationOpt
 	if err != nil {
 		return "", fmt.Errorf("prepare rollback snapshot: %w", err)
 	}
-	record := filepath.Join(lock, "recovery")
-	if err := writeZoneFile(record, []byte(oldTarget+"\n"+snapshot+"\n"+undo+"\n"), 0600); err != nil {
-		return "", errors.Join(err, removeIfExists(record))
+	if err := recordDNSChange(lock, "recovery", oldTarget, snapshot, undo); err != nil {
+		return "", err
 	}
-	if err := syncDirectory(lock); err != nil {
-		return "", errors.Join(err, removeIfExists(record))
-	}
-	preserve = true
 	err = switchSnapshot(root, lock, snapshot)
 	if err == nil {
 		err = reloadZones(ctx, control, changed, newZones)
@@ -178,23 +171,29 @@ func Activate(ctx context.Context, root, candidate string, options ActivationOpt
 		}
 		err = fmt.Errorf("activation failed; previous records restored with newer SOA serials: %w", err)
 	}
-	if cleanup := os.Remove(record); cleanup != nil {
+	if cleanup := finishDNSChange(lock, "recovery"); cleanup != nil {
 		return "", errors.Join(err, cleanup)
 	}
-	preserve = false
 	return snapshot, err
 }
 
-func acquireActivationLock(root string) (string, error) {
-	lock := filepath.Join(root, ".dns-apply-lock")
-	if err := os.Mkdir(lock, 0700); err != nil {
-		return "", fmt.Errorf("acquire DNS activation lock: %w", err)
+func acquireActivationLock(root string) (string, *os.File, error) {
+	guard, err := lockDNSWriter(filepath.Join(root, ".dns-apply-guard"))
+	if err != nil {
+		return "", nil, fmt.Errorf("acquire DNS activation lock: %w", err)
 	}
-	return lock, nil
-}
-
-func releaseActivationLock(root, lock string) error {
-	return errors.Join(os.Remove(lock), syncDirectory(root))
+	lock := filepath.Join(root, ".dns-apply-lock")
+	if err := os.Mkdir(lock, 0700); err == nil {
+		if err := syncDirectory(root); err != nil {
+			return "", nil, errors.Join(err, guard.Close())
+		}
+	} else if !os.IsExist(err) {
+		return "", nil, errors.Join(err, guard.Close())
+	}
+	if err := managedDirectory(lock); err != nil {
+		return "", nil, errors.Join(err, guard.Close())
+	}
+	return lock, guard, nil
 }
 
 func readSnapshot(dir string) ([]ZoneSnapshot, error) {

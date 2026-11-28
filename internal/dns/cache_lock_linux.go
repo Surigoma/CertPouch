@@ -81,3 +81,24 @@ func flockCache(file *os.File, mode int) error {
 		}
 	}
 }
+
+// Keep the guard inode in place so every writer locks the same file.
+// The kernel releases the lock when the process exits.
+func lockDNSWriter(path string) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	info, err := file.Stat()
+	if err == nil && (!info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0) {
+		err = fmt.Errorf("DNS writer guard must be a private regular file")
+	}
+	if err == nil {
+		err = flockCache(file, syscall.LOCK_EX|syscall.LOCK_NB)
+	}
+	if err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	return file, nil
+}

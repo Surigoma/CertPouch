@@ -3,6 +3,7 @@ inventory:
   cache_file: "/var/lib/certpouch/inventory.json"
   fallback_prefix: "192.0.2"
   poll_interval: "3m"
+  max_age: "30m"
   sheets:
     spreadsheet_id: "REPLACE_WITH_SPREADSHEET_ID"
     ranges:

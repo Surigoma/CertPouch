@@ -171,8 +171,9 @@ func validateSnapshot(result *sheetsapi.BatchGetValuesResponse, spreadsheet stri
 			return nil, fmt.Errorf("Sheets returned an empty range at index %d", i)
 		}
 		actual, ok := parseRange(values.Range)
-		if !ok || actual != requested[i] || values.MajorDimension != "ROWS" || len(values.Values) == 0 || len(values.Values) >= actual.end {
-			return nil, fmt.Errorf("Sheets returned an unexpected or empty range at index %d", i)
+		rowDimension := values.MajorDimension == "ROWS" || (values.MajorDimension == "" && len(values.Values) == 0)
+		if !ok || actual != requested[i] || !rowDimension || len(values.Values) >= actual.end {
+			return nil, fmt.Errorf("Sheets returned an unexpected range at index %d", i)
 		}
 		for _, row := range values.Values {
 			if len(row) > 7 {

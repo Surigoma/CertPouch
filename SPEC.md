@@ -70,7 +70,7 @@ Use documentation-only addresses and domains in examples. Restrict access to con
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/v1/health` | Reports server health and the most recent publication refresh result when refresh is enabled. |
+| `GET /api/v1/health` | Reports server health, including publication and inventory refresh failures and configured inventory expiry. |
 | `GET /api/v1/certificates` | Lists authorized current certificates and metadata. |
 | `GET /api/v1/certificates/{name}/metadata` | Returns metadata for a certificate's current generation. |
 | `GET /api/v1/certificates/{name}/download?version={version}` | Returns the explicitly requested generation and its artifact hashes. |

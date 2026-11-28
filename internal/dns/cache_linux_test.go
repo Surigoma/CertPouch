@@ -12,6 +12,28 @@ import (
 	"time"
 )
 
+func TestRefreshCacheResumesAfterWriterExits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.json")
+	if err := os.Mkdir(path+".fetch-lock", 0700); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := lockDNSWriter(path + ".fetch-guard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetch := func(context.Context) ([]byte, error) { return []byte("snapshot"), nil }
+	_, refreshErr := RefreshCache(t.Context(), path, 1024, fetch)
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(refreshErr, syscall.EWOULDBLOCK) {
+		t.Fatalf("concurrent refresh returned %v", refreshErr)
+	}
+	if changed, err := RefreshCache(t.Context(), path, 1024, fetch); err != nil || !changed {
+		t.Fatalf("refresh after writer exit: changed=%t, %v", changed, err)
+	}
+}
+
 func TestCacheReadWaitsForBothFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	recordPath := path + CacheFreshnessSuffix

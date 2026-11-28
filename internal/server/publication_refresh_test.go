@@ -75,16 +75,16 @@ func TestRefreshInventorySuspendsAccessUntilRulesRecover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireStatus := func(want int) {
+	requireStatus := func(path string, want int) {
 		t.Helper()
-		request := httptest.NewRequest(http.MethodGet, "https://example.test/api/v1/certificates", nil)
+		request := httptest.NewRequest(http.MethodGet, "https://example.test"+path, nil)
 		request.RemoteAddr = "192.0.2.10:12345"
 		request.Header.Set("Authorization", "Bearer "+token)
 		request.Header.Set("X-CertPouch-Client-ID", client.ID)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != want {
-			t.Fatalf("inventory status = %d, want %d: %s", response.Code, want, response.Body)
+			t.Fatalf("%s status = %d, want %d: %s", path, response.Code, want, response.Body)
 		}
 	}
 	recoverRules := func() {
@@ -94,16 +94,18 @@ func TestRefreshInventorySuspendsAccessUntilRulesRecover(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		requireStatus(http.StatusOK)
+		requireStatus("/api/v1/certificates", http.StatusOK)
+		requireStatus(distribution.HealthPath, http.StatusOK)
 	}
-	requireStatus(http.StatusOK)
+	requireStatus("/api/v1/certificates", http.StatusOK)
 	loadErr := errors.New("cache unavailable")
 	if err := handler.refreshInventory(func() ([]distribution.Client, error) {
 		return []distribution.Client{client}, loadErr
 	}); !errors.Is(err, loadErr) {
 		t.Fatalf("refreshInventory error = %v, want %v", err, loadErr)
 	}
-	requireStatus(http.StatusUnauthorized)
+	requireStatus("/api/v1/certificates", http.StatusUnauthorized)
+	requireStatus(distribution.HealthPath, http.StatusServiceUnavailable)
 	recoverRules()
 
 	if err := handler.refreshInventory(func() ([]distribution.Client, error) {
@@ -111,7 +113,8 @@ func TestRefreshInventorySuspendsAccessUntilRulesRecover(t *testing.T) {
 	}); err == nil {
 		t.Fatal("accepted duplicate client rules")
 	}
-	requireStatus(http.StatusUnauthorized)
+	requireStatus("/api/v1/certificates", http.StatusUnauthorized)
+	requireStatus(distribution.HealthPath, http.StatusServiceUnavailable)
 	recoverRules()
 }
 

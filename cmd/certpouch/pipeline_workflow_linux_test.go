@@ -89,7 +89,7 @@ func TestPipelineSheetsToCertificatePublication(t *testing.T) {
   cache_file: %q
   fallback_prefix: "192.0.2"
   max_age: "1h"
-  sheets: {spreadsheet_id: "spreadsheet_test", ranges: ["Inventory!A2:G10"], credentials_file: %q}
+  sheets: {spreadsheet_id: "spreadsheet_test", ranges: ["Inventory!A2:G10", "Aliases!A2:G10"], credentials_file: %q}
 dns:
   zone: example.internal
   zones:
@@ -123,6 +123,7 @@ distribution:
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 	octet, alias := "10", "web"
+	aliasRows := `,"values":[["","192.0.2","10","node","","","legacy"]]`
 	http.DefaultTransport = pipelineTransport(func(r *http.Request) (*http.Response, error) {
 		var body string
 		switch {
@@ -130,8 +131,8 @@ distribution:
 			body = `{"access_token":"pipeline-test-token","token_type":"Bearer","expires_in":3600}`
 		case r.URL.Host == "sheets.googleapis.com" && r.Header.Get("Authorization") == "Bearer pipeline-test-token" &&
 			r.URL.Path == "/v4/spreadsheets/spreadsheet_test/values:batchGet" &&
-			slices.Equal(r.URL.Query()["ranges"], []string{"Inventory!A2:G10"}):
-			body = fmt.Sprintf(`{"spreadsheetId":"spreadsheet_test","valueRanges":[{"range":"Inventory!A2:G10","majorDimension":"ROWS","values":[["","192.0.2",%q,"node","","",%q]]}]}`, octet, alias)
+			slices.Equal(r.URL.Query()["ranges"], []string{"Inventory!A2:G10", "Aliases!A2:G10"}):
+			body = fmt.Sprintf(`{"spreadsheetId":"spreadsheet_test","valueRanges":[{"range":"Inventory!A2:G10","majorDimension":"ROWS","values":[["","192.0.2",%q,"node","","",%q]]},{"range":"Aliases!A2:G10","majorDimension":"ROWS"%s}]}`, octet, alias, aliasRows)
 		default:
 			return nil, fmt.Errorf("unexpected pipeline HTTP request: %s %s", r.Method, r.URL)
 		}
@@ -164,7 +165,7 @@ distribution:
 
 	run(t, 0, "")
 	first := publications()
-	if len(first) != 2 || first["web.example.internal"] == "" || first["node.pvt.example.internal"] == "" {
+	if len(first) != 3 || first["web.example.internal"] == "" || first["node.pvt.example.internal"] == "" || first["legacy.example.internal"] == "" {
 		t.Fatalf("unexpected initial publications: %v", first)
 	}
 	initial, err := os.ReadFile(cache)
@@ -176,19 +177,21 @@ distribution:
 		t.Fatalf("reverse zone missing from managed NSD include: %s, %v", managed, err)
 	}
 	octet, alias = "11", "portal"
+	aliasRows = ""
 	write("reject-zones", nil, 0600)
 	run(t, 1, "nsd-checkzone rejected")
 	if body, err := os.ReadFile(cache); err != nil || !bytes.Equal(body, initial) {
 		t.Fatalf("unconfirmed snapshot replaced cache: %s, %v", body, err)
 	}
-	if current := publications(); current["web.example.internal"] != first["web.example.internal"] || len(current) != 2 {
+	if current := publications(); current["web.example.internal"] != first["web.example.internal"] || len(current) != 3 {
 		t.Fatalf("unconfirmed snapshot changed publications: %v", current)
 	}
 	if err := os.Remove(failCheck); err != nil {
 		t.Fatal(err)
 	}
 	run(t, 0, "")
-	if current := publications(); len(current) != 2 || current["web.example.internal"] != "" || current["portal.example.internal"] == "" {
+	if current := publications(); len(current) != 2 || current["web.example.internal"] != "" ||
+		current["legacy.example.internal"] != "" || current["portal.example.internal"] == "" {
 		t.Fatalf("confirmed snapshot did not update publications: %v", current)
 	}
 	zone, err := os.ReadFile(filepath.Join(zones, "current", "example.internal.zone"))

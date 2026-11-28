@@ -34,11 +34,11 @@ func RefreshCacheAfter(ctx context.Context, path string, limit int, fetch func(c
 	if err := managedDirectory(dir); err != nil {
 		return false, fmt.Errorf("check cache directory: %w", err)
 	}
-	lock := path + ".fetch-lock"
-	if err := os.Mkdir(lock, 0700); err != nil {
+	guard, err := lockDNSWriter(path + ".fetch-guard")
+	if err != nil {
 		return false, fmt.Errorf("acquire DNS cache refresh lock: %w", err)
 	}
-	defer func() { err = errors.Join(err, os.Remove(lock)) }()
+	defer func() { err = errors.Join(err, guard.Close()) }()
 	previous, old, err := readCurrentCache(path, limit)
 	if err != nil {
 		return false, err

@@ -20,16 +20,14 @@ func PrepareZones(ctx context.Context, root, candidate string, control ZoneContr
 	if err := managedDirectory(root); err != nil {
 		return err
 	}
-	lock, err := acquireActivationLock(root)
+	lock, guard, err := acquireActivationLock(root)
 	if err != nil {
 		return err
 	}
-	keepLock := false
-	defer func() {
-		if !keepLock {
-			err = errors.Join(err, releaseActivationLock(root, lock))
-		}
-	}()
+	defer func() { err = errors.Join(err, guard.Close()) }()
+	if err := recoverZones(ctx, root, lock, control, reconfigure); err != nil {
+		return err
+	}
 	next, err := readSnapshot(candidate)
 	if err != nil {
 		return err
@@ -48,14 +46,7 @@ func PrepareZones(ctx context.Context, root, candidate string, control ZoneContr
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	names := func(zones []ZoneSnapshot) []string {
-		list := make([]string, 0, len(zones))
-		for _, zone := range zones {
-			list = append(list, zone.name)
-		}
-		return list
-	}
-	if slices.Equal(names(old), names(next)) {
+	if slices.Equal(zoneNames(old), zoneNames(next)) {
 		return nil
 	}
 	for i := range next {
@@ -70,17 +61,12 @@ func PrepareZones(ctx context.Context, root, candidate string, control ZoneContr
 	if err != nil {
 		return err
 	}
-	recovery := filepath.Join(lock, "startup-recovery")
-	if err := writeZoneFile(recovery, []byte(oldTarget+"\n"+target+"\n"), 0600); err != nil {
-		return errors.Join(err, removeIfExists(recovery))
+	if err := recordDNSChange(lock, "startup-recovery", oldTarget, target); err != nil {
+		return err
 	}
-	if err := syncDirectory(lock); err != nil {
-		return errors.Join(err, removeIfExists(recovery))
-	}
-	keepLock = true
 	err = switchSnapshot(root, lock, target)
 	if err == nil {
-		err = reconfigure(ctx, names(next))
+		err = reconfigure(ctx, zoneNames(next))
 	}
 	if err == nil {
 		err = reloadZones(ctx, control, nil, next)
@@ -88,25 +74,36 @@ func PrepareZones(ctx context.Context, root, candidate string, control ZoneContr
 	if err != nil {
 		restore, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
-		var restoreErr error
-		if oldTarget == "" {
-			restoreErr = removeIfExists(current)
-		} else {
-			restoreErr = switchSnapshot(root, lock, oldTarget)
-		}
-		if restoreErr == nil {
-			restoreErr = reconfigure(restore, names(old))
-		}
-		if restoreErr == nil {
-			restoreErr = reloadZones(restore, control, nil, old)
-		}
-		if restoreErr != nil {
+		if restoreErr := restoreStartupZones(restore, root, lock, oldTarget, old, control, reconfigure); restoreErr != nil {
 			return errors.Join(err, fmt.Errorf("restore startup zones: %w", restoreErr))
 		}
 	}
-	if cleanup := os.Remove(recovery); cleanup != nil {
-		return errors.Join(err, cleanup)
+	return errors.Join(err, finishDNSChange(lock, "startup-recovery"))
+}
+
+func zoneNames(zones []ZoneSnapshot) []string {
+	list := make([]string, 0, len(zones))
+	for _, zone := range zones {
+		list = append(list, zone.name)
 	}
-	keepLock = false
-	return err
+	return list
+}
+
+func restoreStartupZones(ctx context.Context, root, lock, target string, zones []ZoneSnapshot, control ZoneControl,
+	reconfigure func(context.Context, []string) error) error {
+	if target == "" {
+		if err := removeIfExists(filepath.Join(root, "current")); err != nil {
+			return err
+		}
+		if err := syncDirectory(root); err != nil {
+			return err
+		}
+	} else if err := switchSnapshot(root, lock, target); err != nil {
+		return err
+	}
+	names := zoneNames(zones)
+	if err := reconfigure(ctx, names); err != nil {
+		return err
+	}
+	return reloadZones(ctx, control, names, zones)
 }

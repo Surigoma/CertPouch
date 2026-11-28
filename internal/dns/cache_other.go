@@ -5,7 +5,12 @@ package dns
 import (
 	"context"
 	"fmt"
+	"os"
 )
+
+func lockDNSWriter(string) (*os.File, error) {
+	return nil, fmt.Errorf("DNS writer locking requires Linux")
+}
 
 func WithCacheRead(_ string, read func() error) error {
 	return read()

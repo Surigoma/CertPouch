@@ -103,9 +103,18 @@ func TestFetchReadOnlySnapshot(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(valid), &before) != nil || json.Unmarshal(output, &after) != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("fetch did not return the validated snapshot: %v", err)
 	}
+	replies <- strings.Replace(valid, `,"values":[["","198.51.100","11","other"]]`, "", 1)
+	if _, err := client.Fetch(t.Context(), credentials, "example", []string{first, second}); err != nil {
+		t.Fatalf("fetch rejected a returned range with no rows: %v", err)
+	}
+	replies <- strings.Replace(valid, `,"majorDimension":"ROWS","values":[["","198.51.100","11","other"]]`, "", 1)
+	if _, err := client.Fetch(t.Context(), credentials, "example", []string{first, second}); err != nil {
+		t.Fatalf("fetch rejected a returned empty range with no dimension: %v", err)
+	}
 	for _, test := range []struct{ name, body string }{
 		{"wrong spreadsheet", strings.Replace(valid, `"spreadsheetId":"example"`, `"spreadsheetId":"other"`, 1)},
 		{"incomplete", `{"spreadsheetId":"example","valueRanges":[]}`},
+		{"null range", strings.Replace(valid, `{"range":"Other!A2:G100","majorDimension":"ROWS","values":[["","198.51.100","11","other"]]}`, "null", 1)},
 		{"wrong range", strings.Replace(valid, "Other!A2:G100", "Other!B2:G100", 1)},
 		{"non-text value", strings.Replace(valid, `"198.51.100","11"`, `"198.51.100",11`, 1)},
 		{"oversized", strings.Repeat(" ", MaxSnapshotBytes+1)},

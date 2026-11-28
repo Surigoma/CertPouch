@@ -75,6 +75,17 @@ func watchPipeline(ctx context.Context, path string, deployment config.DNSDeploy
 }
 
 func syncPipeline(ctx context.Context, path string, deployment config.DNSDeployment, control nsdCommands, startup *bool, out io.Writer) error {
+	var reconfigure func(context.Context, []string) error
+	if *startup {
+		var err error
+		reconfigure, err = nsdReconfigure(deployment, control)
+		if err != nil {
+			return err
+		}
+	}
+	if err := dns.RecoverZones(ctx, deployment.ZoneDir, control, reconfigure); err != nil {
+		return err
+	}
 	fetch, err := config.LoadSheetsFetch(path)
 	if err != nil {
 		return err
@@ -107,8 +118,8 @@ func syncPipeline(ctx context.Context, path string, deployment config.DNSDeploym
 			_ = os.Remove(candidate)
 		}()
 		if *startup {
-			if err := prepareNSD(ctx, deployment, candidate, control); err != nil {
-				return err
+			if err := dns.PrepareZones(ctx, deployment.ZoneDir, candidate, control, reconfigure); err != nil {
+				return fmt.Errorf("prepare NSD zones using %s: %w", deployment.NSDInclude, err)
 			}
 			*startup = false
 		}

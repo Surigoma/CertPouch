@@ -22,8 +22,8 @@ func TestInventoryDeadlineRevokesCachedAuthorizationWithoutWaitingForRefresh(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := func() int {
-		r := httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil)
+	request := func(path string) int {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
 		r.TLS = &tls.ConnectionState{}
 		r.RemoteAddr = "192.0.2.10:1234"
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -32,11 +32,17 @@ func TestInventoryDeadlineRevokesCachedAuthorizationWithoutWaitingForRefresh(t *
 		handler.ServeHTTP(w, r)
 		return w.Code
 	}
-	if code := request(); code != http.StatusOK {
+	if code := request(inventoryPath); code != http.StatusOK {
 		t.Fatalf("fresh authorization returned %d", code)
 	}
+	if code := request(HealthPath); code != http.StatusOK {
+		t.Fatalf("fresh inventory health returned %d", code)
+	}
 	now = deadline
-	if code := request(); code != http.StatusUnauthorized {
+	if code := request(inventoryPath); code != http.StatusUnauthorized {
 		t.Fatalf("expired authorization returned %d", code)
+	}
+	if code := request(HealthPath); code != http.StatusServiceUnavailable {
+		t.Fatalf("expired inventory health returned %d", code)
 	}
 }

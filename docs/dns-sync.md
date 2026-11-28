@@ -10,6 +10,8 @@
 
 常駐させる場合は [pipeline用systemd unit](../configs/systemd/certpouch-pipeline.service)を使える。専用の取得タイマーと更新タイマーを同じ設定に対して併用しない。同期プロセスと配布サーバーを別ユーザーで動かす場合は、同期ユーザー所有かつ配布グループ読み取り可能な0640のキャッシュを事前に用意する。初回同期成功後に配布サーバーを起動する。配布サーバーのユーザーにはTLS鍵・トークンハッシュ・公開ストアを読める権限を付け、署名CA秘密鍵への権限は同期ユーザーに限る。
 
+新形式の設定例では `inventory.max_age: "30m"` を指定している。期限を超えると配布APIのhealthは503を返し、新規取得を拒否する。最後にDNS反映を確認できた台帳の取得時刻は `certpouch dns fetch --status --config /etc/certpouch/server.yaml` の `last_successful_fetch` で確認できる。既存の設定でも `inventory.max_age` を明示すると期限を監視できる。
+
 ```sh
 certpouch pipeline --config /etc/certpouch/server.yaml
 certpouch dns diff --zone-dir /var/lib/certpouch/nsd-zones --candidate /absolute/path/to/candidate
@@ -92,7 +94,9 @@ certpouch dns apply \
 
 更新では全候補を再検証し、現在NSDが配信中のserialと管理ディレクトリの内容を照合する。変更があるゾーンだけに対してreloadを要求し、ローカルのNSDへ直接TCPでSOAを問い合わせて期待したserialが返った時点で成功とする。`--dns-address` にはリゾルバーを介さず、対象NSDのループバックアドレスとポートを指定する。[NSDの制御コマンド](https://nsd.docs.nlnetlabs.nl/en/latest/manpages/nsd-control.html)
 
-反映失敗時は、旧レコードを候補より新しいserialで再適用する。ファイル参照先は一度に切り替わるが、NSDで全ゾーンの反映が同時に完了する保証はない。切り戻しにも失敗した場合は、`.dns-apply-lock/recovery` に旧世代・候補・切り戻し世代を残して、次回の適用を停止する。実行中の適用がないことを確認し、`current` とNSDが返すSOA serialを照合してから手動で復旧する。
+反映失敗時は、旧レコードを候補より新しいserialで再適用する。ファイル参照先は一度に切り替わる。NSDはゾーンごとに反映する。異常終了や切り戻し失敗で `.dns-apply-lock/recovery` が残った場合は、次回の処理で記録した世代とNSDのSOA serialを照合して復旧する。起動時のゾーン登録の中断からは、専用includeを使う同期で `.dns-apply-lock/startup-recovery` を読み、旧ゾーン構成を再適用する。記録外の世代やserialが見つかった場合は、記録を保持して停止する。
+
+旧版から切り替える前に旧版の同期・DNS適用を停止する。新バイナリの排他はプロセス終了時に解放される。稼働中は `.dns-apply-guard` を取り除かない。
 
 `dns apply --max-removed-records N` を指定すると、既存ゾーン全体で削除・置換されるレコード行が `N` 件を超える候補を拒否する。例えば `0` を指定するとレコードの削除・置換がある候補を拒否する。同じ名前の参照先を変える更新も、旧レコード1件の置換として数える。SOAとゾーン共通TTLの変更は件数に含めない。判定は適用ロック取得後、NSDへの問い合わせや候補の適用より前に行う。既定値の `-1` は件数制限を無効にする。
 
