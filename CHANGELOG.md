@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/Surigoma/CertPouch/compare/v1.0.0...v2.0.0) (2026-11-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dns:** configure dns no longer accepts --serial. Pass the first serial to dns sync --serial instead.
+* **config:** server.yaml in the v1 layouts is no longer read, and cert renew --renewal-config is removed. Move settings to inventory, dns, certificates and distribution as shown in docs/SPEC/02-configuration.md.
+
+### Features
+
+* **config:** accept only the v2 server.yaml layout ([946f2a0](https://github.com/Surigoma/CertPouch/commit/946f2a0da5aa7cc65984873cd60062b633bb5509))
+
+
+### Bug Fixes
+
+* **cli:** write requested help to stdout ([79bad27](https://github.com/Surigoma/CertPouch/commit/79bad2741c340ad1cb2ea553b48e381d9734a5be))
+* **dns:** stop writing a fixed SOA serial from configure dns ([eca28e4](https://github.com/Surigoma/CertPouch/commit/eca28e4ec28ef6e49e1f1f44d9be6bd4e5c8d041))
+* **pull:** keep processing other certificates after one fails ([8f19499](https://github.com/Surigoma/CertPouch/commit/8f194997c7871931e1c6eee0d44039b4bd20ccfc))
+
 ## [1.0.0](https://github.com/Surigoma/CertPouch/compare/v0.2.1...v1.0.0) (2026-11-28)
 
 
