@@ -22,7 +22,7 @@ If certificate issuance fails after DNS activation succeeded, keep the active DN
 Authorization rules:
 
 - Inventory membership decides which names are issued.
-- Retrieval always requires client authentication.
+- Retrieval defaults to token authentication. Operators can explicitly select mTLS-only or direct source IP authentication.
 - Each client can be restricted by inventory source IP match (the default), a certificate name allowlist, both, or explicitly neither.
 - A valid inventory change is never blocked by a threshold on removed or replaced records.
 
@@ -94,12 +94,14 @@ See the [configuration guide](docs/configure.md), the [server YAML example](conf
 
 ### Authentication and authorization
 
-- The receiving host holds the token and reads it from `client.token_file`.
+- `distribution.auth` sets the default authentication mode and `distribution.clients[].auth` can override it. The receiving host selects the matching `client.auth`. Modes are `token` (default), `mtls`, and `ip`.
+- In token mode the receiving host holds the token and reads it from `client.token_file`.
 - The server reads only its SHA-256 digest from `distribution.clients[].token_hash_file` and compares it in constant time.
 - In DNS inventory mode, the server checks the TCP source IP against the certificate's logical name and any per-client certificate exceptions.
 - Static mode uses IP/CIDR allowlists and certificate assignments.
 - Forwarding headers are ignored.
-- Optional mTLS adds client certificate validation and fingerprint binding.
+- With a TLS client CA, all connections require a verified client certificate. Token mode also checks a bearer token, while mTLS mode checks the certificate fingerprint alone for identity.
+- IP mode trusts the direct source address. It requires inventory IP matching or static assignments with exact IP addresses and explicit certificate names. Use it only on networks where source addresses are trusted.
 - The runtime revocation list can deny a client ID or an mTLS fingerprint.
 
 Use documentation-only addresses and domains in examples. Restrict access to configuration, credentials, and signing keys. See [configuration](docs/SPEC/02-configuration.md), [DNS authorization](docs/dns-inventory.md), [mTLS](docs/mtls.md), and [revocation](docs/client-revocation.md).
@@ -114,7 +116,7 @@ Use documentation-only addresses and domains in examples. Restrict access to con
 | `GET /api/v1/certificates/{name}/download?version={version}` | Returns the requested generation and its artifact hashes. |
 
 - TLS 1.2 or later is required. The client verifies the server name against the configured TLS CA.
-- Requests carry a bearer token and a client ID.
+- Requests carry a client ID. Only token mode sends a bearer token.
 - Responses are JSON. The leaf, chain, and private key are separate artifacts.
 - Logs record distribution outcomes without secrets.
 

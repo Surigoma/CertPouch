@@ -30,6 +30,7 @@ func init() {
 type Client struct {
 	ID                  string
 	Enabled             bool
+	Auth                AuthMode
 	TokenHash           [sha256.Size]byte
 	AllowedIPs          []netip.Prefix
 	AllowedCertificates []string
@@ -38,6 +39,68 @@ type Client struct {
 	CertificateIPs          map[string][]netip.Prefix
 	InventoryExpiresAt      time.Time
 	ClientCertificateHashes [][sha256.Size]byte
+}
+
+type AuthMode string
+
+const (
+	AuthToken AuthMode = "token"
+	AuthMTLS  AuthMode = "mtls"
+	AuthIP    AuthMode = "ip"
+)
+
+func (mode AuthMode) Valid() bool {
+	return mode.UsesToken() || mode == AuthMTLS || mode == AuthIP
+}
+
+func (mode AuthMode) UsesToken() bool {
+	return mode == "" || mode == AuthToken
+}
+
+// ValidateAuthentication checks the credentials and address constraints of an
+// authorization snapshot, including snapshots rebuilt from a changed inventory.
+func (c Client) ValidateAuthentication() error {
+	if !c.Auth.Valid() {
+		return fmt.Errorf("auth must be token, mtls, or ip")
+	}
+	if c.Auth.UsesToken() {
+		if c.Enabled && c.TokenHash == [sha256.Size]byte{} {
+			return fmt.Errorf("token authentication requires a token hash")
+		}
+		return nil
+	}
+	if c.TokenHash != [sha256.Size]byte{} {
+		return fmt.Errorf("auth %s cannot use a token hash", c.Auth)
+	}
+	if c.Auth == AuthMTLS {
+		if c.Enabled && len(c.ClientCertificateHashes) == 0 {
+			return fmt.Errorf("auth mtls requires an allowed client certificate fingerprint")
+		}
+		return nil
+	}
+	if len(c.ClientCertificateHashes) != 0 {
+		return fmt.Errorf("auth ip cannot use client certificate fingerprints")
+	}
+	if c.CertificateIPs == nil && (len(c.AllowedIPs) == 0 || len(c.AllowedCertificates) == 0) {
+		return fmt.Errorf("auth ip requires allowed_ips and allowed_certificates without inventory")
+	}
+	for _, prefix := range c.AllowedIPs {
+		if !isHostPrefix(prefix) {
+			return fmt.Errorf("auth ip requires exact source IPs")
+		}
+	}
+	for _, prefixes := range c.CertificateIPs {
+		for _, prefix := range prefixes {
+			if !isHostPrefix(prefix) {
+				return fmt.Errorf("auth ip requires exact certificate source IPs")
+			}
+		}
+	}
+	return nil
+}
+
+func isHostPrefix(prefix netip.Prefix) bool {
+	return prefix.IsValid() && prefix.Bits() == prefix.Addr().BitLen() && !prefix.Addr().Unmap().IsUnspecified()
 }
 
 type Handler struct {
@@ -79,9 +142,11 @@ func (h *Handler) WithClients(clients []Client) (*Handler, error) {
 	next := &Handler{catalog: h.catalog, clients: make(map[string]Client), logger: h.logger, now: h.now, revocations: h.revocations}
 	for _, client := range clients {
 		if !namePattern.MatchString(client.ID) || next.clients[client.ID].ID != "" ||
-			(client.CertificateIPs == nil && len(client.AllowedIPs) == 0) ||
-			(client.Enabled && client.TokenHash == [sha256.Size]byte{}) {
+			(client.CertificateIPs == nil && len(client.AllowedIPs) == 0) {
 			return nil, fmt.Errorf("invalid or duplicate client configuration")
+		}
+		if err := client.ValidateAuthentication(); err != nil {
+			return nil, err
 		}
 		client.ClientCertificateHashes = append([][sha256.Size]byte(nil), client.ClientCertificateHashes...)
 		if client.CertificateIPs != nil {
@@ -299,7 +364,7 @@ func (h *Handler) logOperation(operation, clientID, name, result, category strin
 
 func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 	ids, headers := r.Header.Values("X-CertPouch-Client-ID"), r.Header.Values("Authorization")
-	if len(ids) != 1 || len(headers) != 1 {
+	if len(ids) != 1 {
 		return Client{}, false
 	}
 	client, ok := h.clients[ids[0]]
@@ -312,16 +377,11 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 	if !matchesClientCertificate(r, client.ClientCertificateHashes) {
 		return Client{}, false
 	}
-	scheme, token, ok := strings.Cut(headers[0], " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") || len(token) > 1024 {
-		return Client{}, false
-	}
-	raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
-	if err != nil || len(raw) < 32 || strings.ContainsAny(token, "\r\n") {
-		return Client{}, false
-	}
-	digest := sha256.Sum256([]byte(token))
-	if subtle.ConstantTimeCompare(digest[:], client.TokenHash[:]) != 1 {
+	if client.Auth.UsesToken() {
+		if !matchesBearerToken(headers, client.TokenHash) {
+			return Client{}, false
+		}
+	} else if len(headers) != 0 {
 		return Client{}, false
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -343,6 +403,9 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 			}
 		}
 		sort.Strings(client.AllowedCertificates)
+		if client.Auth == AuthIP && len(client.AllowedCertificates) == 0 {
+			return Client{}, false
+		}
 		return client, true
 	}
 	for _, prefix := range client.AllowedIPs {
@@ -351,6 +414,22 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 		}
 	}
 	return Client{}, false
+}
+
+func matchesBearerToken(headers []string, tokenHash [sha256.Size]byte) bool {
+	if len(headers) != 1 {
+		return false
+	}
+	scheme, token, ok := strings.Cut(headers[0], " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || len(token) > 1024 {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
+	if err != nil || len(raw) < 32 || strings.ContainsAny(token, "\r\n") {
+		return false
+	}
+	digest := sha256.Sum256([]byte(token))
+	return subtle.ConstantTimeCompare(digest[:], tokenHash[:]) == 1
 }
 
 func matchesClientCertificate(r *http.Request, allowed [][sha256.Size]byte) bool {

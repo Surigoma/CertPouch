@@ -3,6 +3,7 @@ server:
   ca_file: "/etc/ssl/certpouch/server-ca.crt"
 client:
   id: "web-server-01"
+  auth: "token" # Match the server client entry. For ip or mtls, omit token_file.
   token_file: "/etc/certpouch/client.token"
   # Supply both paths if the distribution server requires mTLS.
   # tls_certificate: "/etc/certpouch/client.crt"

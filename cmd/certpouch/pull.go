@@ -66,7 +66,7 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	remote, err := client.NewWithCertificate(cfg.URL, cfg.ID, cfg.Token, cfg.TLSRoots, cfg.TLSCertificate)
+	remote, err := client.NewWithAuthentication(cfg.URL, cfg.ID, cfg.Token, cfg.TLSRoots, cfg.TLSCertificate, cfg.Auth)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2

@@ -3,7 +3,7 @@
 相互TLS（mTLS）を有効にすると、配布サーバーはHTTPS接続の確立時にクライアント証明書を検証します。
 
 - APIは、検証済みのリーフ証明書のSHA-256フィンガープリントを、クライアントIDの設定と照合します。
-- 従来のトークン認証と、証明書ごとの接続元IP認可も引き続き行います。
+- 既定の `auth: token` では従来どおりトークン認証も行います。mTLSだけを使う場合は `distribution.auth: mtls` または `distribution.clients[].auth: mtls` を設定し、該当する `token_hash_file` を省略します。どちらも証明書ごとの接続元認可を行います。
 
 ## サーバーの設定
 
@@ -51,6 +51,7 @@ client:
 ```
 
 - `client.tls_certificate` と `client.tls_private_key` に、クライアント用のPEM証明書と秘密鍵の絶対パスを両方設定します。
+- サーバー側を `auth: mtls` にしたクライアントは、`client.auth: mtls` を設定し、`client.token_file` を省略します。
 - クライアント証明書は、Client Authentication用途で発行します。
 - 中間CAがある場合は、リーフの後ろに中間CAを添付します。
 - 秘密鍵は、既定の保護に従って0600で保管します。

@@ -48,6 +48,7 @@ type Server struct {
 type serverDocument struct {
 	Deployment *DNSDeployment
 	Server     struct {
+		Auth              string
 		Listen            string
 		Refresh           string
 		RevocationFile    string
@@ -79,14 +80,15 @@ type certificateDocument struct {
 }
 
 type clientDocument struct {
-	ID                      string              `yaml:"id"`
-	Enabled                 bool                `yaml:"enabled"`
-	AllowedIPs              []string            `yaml:"allowed_ips"`
-	AllowedCertificates     []string            `yaml:"allowed_certificates"`
-	TokenHashFile           string              `yaml:"token_hash_file"`
-	Overrides               map[string][]string `yaml:"certificate_access_overrides"`
-	InventoryAccess         string              `yaml:"inventory_access"`
-	ClientCertificateSHA256 []string            `yaml:"client_certificate_sha256"`
+	ID                      string                `yaml:"id"`
+	Auth                    distribution.AuthMode `yaml:"auth"`
+	Enabled                 bool                  `yaml:"enabled"`
+	AllowedIPs              []string              `yaml:"allowed_ips"`
+	AllowedCertificates     []string              `yaml:"allowed_certificates"`
+	TokenHashFile           string                `yaml:"token_hash_file"`
+	Overrides               map[string][]string   `yaml:"certificate_access_overrides"`
+	InventoryAccess         string                `yaml:"inventory_access"`
+	ClientCertificateSHA256 []string              `yaml:"client_certificate_sha256"`
 }
 
 func LoadServer(path string) (Server, error) {
@@ -138,6 +140,16 @@ func readServerDocument(path string) (serverDocument, error) {
 var errIssuanceWithoutInventory = fmt.Errorf("certificates.issuer without certificates.targets issues a certificate for every inventory name and requires inventory.cache_file or inventory.csv_files")
 
 func loadServerDocument(doc serverDocument) (Server, error) {
+	defaultAuth := distribution.AuthMode(doc.Server.Auth)
+	if !defaultAuth.Valid() {
+		return Server{}, fmt.Errorf("distribution.auth must be token, mtls, or ip")
+	}
+	if defaultAuth == distribution.AuthMTLS && doc.Server.TLS.ClientCA == "" {
+		return Server{}, fmt.Errorf("distribution.auth mtls requires distribution.tls.client_ca")
+	}
+	if defaultAuth == distribution.AuthIP && doc.Server.TLS.ClientCA != "" {
+		return Server{}, fmt.Errorf("distribution.auth ip is incompatible with distribution.tls.client_ca")
+	}
 	_, port, err := net.SplitHostPort(doc.Server.Listen)
 	portNumber, portErr := strconv.ParseUint(port, 10, 16)
 	if err != nil || portErr != nil || portNumber == 0 {
@@ -238,12 +250,24 @@ func loadServerDocument(doc serverDocument) (Server, error) {
 	}
 	clientCertOwners := make(map[[sha256.Size]byte]string)
 	for i, entry := range doc.Clients {
+		if entry.Auth == "" {
+			entry.Auth = defaultAuth
+		}
+		if entry.Auth == distribution.AuthMTLS && result.TLSClientCAs == nil {
+			return Server{}, fmt.Errorf("distribution.clients[%d].auth mtls requires distribution.tls.client_ca", i)
+		}
+		if entry.Auth == distribution.AuthIP && result.TLSClientCAs != nil {
+			return Server{}, fmt.Errorf("distribution.clients[%d].auth ip is incompatible with distribution.tls.client_ca", i)
+		}
 		client, err := entry.client(result.Policies, inventory, result.InventoryCertificates)
 		if err != nil {
 			return Server{}, fmt.Errorf("distribution.clients[%d]: %w", i, err)
 		}
 		client.ClientCertificateHashes, err = entry.certificateHashes(result.TLSClientCAs != nil)
 		if err != nil {
+			return Server{}, fmt.Errorf("distribution.clients[%d]: %w", i, err)
+		}
+		if err := client.ValidateAuthentication(); err != nil {
 			return Server{}, fmt.Errorf("distribution.clients[%d]: %w", i, err)
 		}
 		if client.Enabled {
@@ -410,10 +434,16 @@ func inventoryPolicies(inventory dns.Inventory, policy pki.Policy) map[string]pk
 }
 
 func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.Inventory, dynamic bool) (distribution.Client, error) {
-	client := distribution.Client{ID: c.ID, Enabled: c.Enabled, AllowedCertificates: c.AllowedCertificates}
+	client := distribution.Client{ID: c.ID, Enabled: c.Enabled, Auth: c.Auth, AllowedCertificates: c.AllowedCertificates}
+	if !c.Auth.Valid() {
+		return client, fmt.Errorf("auth must be token, mtls, or ip")
+	}
 	if inventory != nil {
 		if len(c.AllowedIPs) != 0 {
 			return client, fmt.Errorf("allowed_ips is incompatible with DNS inventory mode")
+		}
+		if c.Auth == distribution.AuthIP && (c.InventoryAccess == "names" || c.InventoryAccess == "all") {
+			return client, fmt.Errorf("auth ip requires inventory_access ip or ip_and_names")
 		}
 		rules, err := c.inventoryRules(policies, *inventory, dynamic)
 		if err != nil {
@@ -440,6 +470,12 @@ func (c clientDocument) client(policies map[string]pki.Policy, inventory *dns.In
 		if _, ok := policies[name]; !ok && inventory == nil {
 			return client, fmt.Errorf("certificate assignment references an unconfigured certificate")
 		}
+	}
+	if !c.Auth.UsesToken() {
+		if c.TokenHashFile != "" {
+			return client, fmt.Errorf("token_hash_file is incompatible with auth %s", c.Auth)
+		}
+		return client, nil
 	}
 	if !filepath.IsAbs(c.TokenHashFile) {
 		return client, fmt.Errorf("token_hash_file must be an absolute path")

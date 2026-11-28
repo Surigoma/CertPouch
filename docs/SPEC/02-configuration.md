@@ -96,14 +96,16 @@ serialは通常、設定に書かない。
 
 | 項目 | 検証・役割 |
 | --- | --- |
+| `auth` | 全クライアントの既定の認証方式。省略時は `token` |
 | `listen` | 有効なhost:port。HTTPの併設やHTTPへのフォールバックは禁止 |
 | `tls.certificate_file`、`tls.private_key_file` | 配布APIのHTTPS証明書と鍵。PEMが読め、鍵が一致すること。配布対象の鍵とは分離する |
 | `tls.client_ca` | 任意。設定するとmTLSを要求する。各有効クライアントに `client_certificate_sha256` が必要。[mTLSの設定](../mtls.md) |
 | `refresh_interval` | 公開ストアと台帳を読み直す間隔。1秒以上、既定5秒 |
 | `revocation_file`、`revocation_refresh` | 任意。失効させるクライアントIDとmTLS証明書のフィンガープリントを記録したYAMLと、その読み直し間隔（1秒以上、既定5秒） |
 | `clients[].id` | 空・重複を禁止 |
+| `clients[].auth` | クライアント単位の上書き。省略時は `distribution.auth` を使う |
 | `clients[].enabled` | 省略時false。無効なクライアントの要求を拒否 |
-| `clients[].token_hash_file` | SHA-256の小文字16進64桁を1行で格納。形式不正・読み込み失敗は起動失敗 |
+| `clients[].token_hash_file` | `token` で必須。他の方式では指定不可。SHA-256の小文字16進64桁を1行で格納 |
 | `clients[].allowed_ips` | 台帳を使わない場合だけ指定する。単一IPとCIDRを許容し、構文不正は起動失敗 |
 | `clients[].allowed_certificates` | 明示列挙。ワイルドカード禁止 |
 | `clients[].inventory_access` | 台帳を使う場合の取得範囲（下表） |
@@ -124,7 +126,7 @@ serialは通常、設定に書かない。
 
 - 証明書の論理名と同名の台帳レコードを、基本の取得元とする。
 - 例外ホストを証明書・クライアント単位で追加できる。
-- すべてのモードで認証が必要である。
+- `auth: ip` では `inventory_access: ip` または `ip_and_names` が必要である。
 - `certificates.targets` で発行・配布する名前を固定する構成では、例外設定の証明書名は `targets` に、例外ホストは台帳に存在する必要がある。
 - 台帳から発行対象を決める構成では、台帳に存在する証明書名と例外ホストの組み合わせだけを有効にする。台帳から消えた証明書名や例外ホストへの例外許可は次の読み直しで外し、ほかの有効な許可を維持する。
 
@@ -155,6 +157,14 @@ distribution:
 
 ## 配布認証の設定
 
+| `auth` | サーバーの条件 | クライアントの条件 |
+| --- | --- | --- |
+| `token`（既定） | `token_hash_file` が必須。TLSクライアントCAの設定時はフィンガープリント照合も行う | `token_file` が必須。サーバーがmTLSを要求する場合はクライアント証明書と鍵も必要 |
+| `mtls` | TLSクライアントCAとクライアント証明書のフィンガープリントが必須 | クライアント証明書と鍵が必須 |
+| `ip` | 台帳IP一致、または静的設定で単一IP（`/32`・`/128` を含む）と明示した証明書名の両方が必須。TLSクライアントCAとの併用不可 | クライアントIDを送る。サーバー証明書は従来どおりCAとホスト名で検証する |
+
+IP方式では、同じ接続元IPを共有する端末を区別できない。IPを信頼できる閉域ネットワークで使用する。すべての方式で、有効なクライアントIDと証明書ごとの取得制限が必要である。
+
 - サーバーは `token_hash_file` のSHA-256ハッシュを読む。
 - クライアントは `token_file` の平文トークンを読む。
 - トークンは暗号学的乱数32バイト以上を、base64url（paddingなし）で表現する。その文字列のSHA-256を保存する。
@@ -171,6 +181,7 @@ server:
   ca_file: "/etc/ssl/certpouch/server-ca.crt"
 client:
   id: "web-server-01"
+  auth: token
   token_file: "/etc/certpouch/client.token"
   state_dir: "/var/lib/certpouch/client"
 validation:
