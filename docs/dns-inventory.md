@@ -19,6 +19,7 @@ DNS台帳を使って、証明書を取得できる接続元を制御する方�
 `server.yaml` に次の項目を加えます。
 
 - 台帳モードでは、クライアントごとの `allowed_ips` を書きません。
+- 例はトークン方式です。mTLSやIPだけの方式、`inventory_access` の選び方は[配布クライアントと認証方式](distribution-clients.md)を参照してください。
 - 配布する名前は、`certificates.targets` で固定するか、省略して台帳上のすべての名前を対象にします。
 - `configure server` でも台帳モードの設定を生成できます。[手動配布の手順](manual-distribution.md)
 

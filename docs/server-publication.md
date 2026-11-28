@@ -76,3 +76,24 @@ certpouch cert publish --config /etc/certpouch/server.yaml \
 3. 証明書の登録は、上記の `cert publish` で別途行います。
 
 unitは、配布サーバーからのファイルシステムへの書き込みを制限します。設定例は非特権ポートを使います。
+
+> [!WARNING]
+> `ProtectHome=true` は `/home` と `/root` を隠します。TLS証明書・鍵や証明書ストアをホームディレクトリ配下に置いたまま使うと、起動直後に `no such file or directory` で再起動を繰り返します。ホーム配下を使う場合は `ProtectHome=tmpfs` にして、必要なファイルだけを `BindReadOnlyPaths=`（書き込むディレクトリは `BindPaths=` と `ReadWritePaths=`）で見せます。`ReadWritePaths=` に書いたディレクトリが存在しないと、本体の実行前に `226/NAMESPACE` で止まります。
+
+**unitを変える前に確認する**
+
+unitの保護設定を変える場合は、同じ設定を `systemd-run` で再現し、その中で設定を検証すると、サービスを止めずに参照漏れを見つけられます。
+
+```sh
+sudo systemd-run --quiet --wait --pipe --collect \
+  --property=ProtectHome=tmpfs --property=ProtectSystem=strict \
+  --property=BindReadOnlyPaths="/home/operator/certs/server.crt /home/operator/certs/server.key" \
+  /usr/local/bin/certpouch server --check-config --config /etc/certpouch/server.yaml
+```
+
+**運用上の注意**
+
+- `distribution.tls` の証明書と鍵など、`server.yaml` が直接参照するファイルは通常のファイルにします。シンボリックリンクを指定すると `expected a regular file` で拒否されます。
+- 配布サーバーは自分のTLS証明書を起動時に読みます。証明書を差し替えたら再起動します。
+- 再起動の直後は、HTTPSが応答するまで少し時間がかかります。ヘルスチェックは数十秒再試行してから失敗と判断します。
+- クライアントの登録と認証方式は[配布クライアントと認証方式](distribution-clients.md)を参照します。

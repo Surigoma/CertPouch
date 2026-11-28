@@ -31,6 +31,13 @@ certpouch pipeline --watch --config /etc/certpouch/server.yaml
 - 起動時に専用ファイルと管理世代を切り替え、`nsd-checkconf`、`nsd-control reconfig`、SOAの照合を実行します。
 - レンジを変える場合は、このリストを変更して同期プロセスを再起動します。
 - すでにNSDで運用中のゾーンを移す場合は、現行のSOAとレコードを確認してから管理世代を初期登録します。
+
+
+> [!WARNING]
+> 専用ファイルのゾーン定義は、既存定義の `notify` と `provide-xfr` を引き継ぎません。セカンダリがある環境で専用ファイルに切り替えると、セカンダリへの通知とゾーン転送が止まります。その場合は既存の `zone:` 定義を残して `zonefile:` だけを `/var/lib/certpouch/nsd-zones/current/<ゾーン名>.zone` に向け、`dns.nsd.include_file` は設定しません。[初期登録](#初期登録)の手順で切り替えます。
+
+- `dns.nsd.dns_address` には権威NSDのアドレスとポートを指定します。同じホストの53番でリゾルバーが動いている場合に53番を指定すると、SOAの照合が成り立ちません。
+- 同期プロセスは、NSDが管理世代を配信していることを確認してから起動します。
 - 切り戻しにも失敗した場合は、管理ディレクトリの `.dns-apply-lock/startup-recovery` を確認します。
 
 ### 常駐させる
@@ -136,6 +143,7 @@ static_records:
 | `type` | A、AAAA、CNAME、MX、TXT、PTR。MXでは `priority` が必須 |
 | TXTの値 | 引用符・バックスラッシュ・ドル記号を含まない、255バイト以内の表示可能なASCII |
 
+- `owner` を相対名で書くと、ゾーン名が付け足されます。ゾーン頂点を `example.internal`（末尾のドットなし）と書くと `example.internal.example.internal.` になるため、`@` か末尾にドットを付けた名前で書きます。差分にゾーン頂点のA・AAAAの削除と、見覚えのない名前の追加が出たら、まずこれを疑います。
 - 固定のAからPTRを生成する場合は、PTRも明示します。
 - CNAMEと他のレコードの衝突、複数の異なる参照先、循環はエラーになります。
 - 既存のゾーンファイルをそのまま取り込む機能はありません。移行前に必要な固定レコードを設定へ移し、既存ゾーンと生成結果を比較してください。
@@ -155,8 +163,8 @@ certpouch dns diff --baseline /var/lib/certpouch/staging/old \
 
 ### 初期登録
 
-1. 既存のゾーン定義や静的レコードと候補を比較します。
-2. 初回の候補を `dns sync --stage-dir DIR --serial N` で作ります。
+1. 既存のゾーン定義や静的レコードと候補を比較します。現在NSDが配信しているレコードとSOA serialも照合します。
+2. 初回の候補を `dns sync --stage-dir DIR --serial N` で作ります。既存のレコードとserialを保ったまま移る場合は、現行ゾーンから作った基準候補を使い、`dns diff --baseline` で差分を確認します。
 3. 空の管理ディレクトリに、最初の候補を登録します。初期登録はNSDに接続しません。
 
    ```sh
@@ -168,6 +176,15 @@ certpouch dns diff --baseline /var/lib/certpouch/staging/old \
 4. NSDの各ゾーン定義を `/var/lib/certpouch/nsd-zones/current/<ゾーン名>.zone` に向けます。
 5. NSDのユーザーに、管理ディレクトリの通過権限とファイルの読み取り権限を与えます。適用後の世代では、ゾーンファイルが0640、世代ディレクトリが0750になります。NSDと別のユーザーで適用する場合は、管理ディレクトリに共有グループとsetgidを設定し、グループを継承させます。
 6. リモート制御を有効にし、NSDが最初の世代を配信していることを確認します。
+
+**NSD設定を切り替えるとき**
+
+- 変更前の `nsd.conf` とincludeを退避し、差分は `patch --dry-run` などで事前に確認します。
+- 切り替えたら `nsd-checkconf` を通し、全ゾーンのSOAを照合します。一致しなければ退避した設定に戻します。
+- 既存の `zone:` 定義を残す場合も、`notify` と `provide-xfr` が残っていることを確認します。
+
+> [!NOTE]
+> 旧来のスクリプトが、ゾーンディレクトリ内の全ファイルをNSDへコピーする作りだった場合、台帳から外れた逆引きゾーンが古いまま配信され続けていることがあります。候補で削除されるPTRが出たら、そのホストが台帳上で別のアドレスへ移っていないか確認してから、固定レコードとして残すか削除するかを決めます。
 
 ### 更新
 
@@ -192,7 +209,7 @@ certpouch dns diff --baseline /var/lib/certpouch/staging/old \
 - 全候補を再検証し、現在NSDが配信しているserialと管理ディレクトリの内容を照合します。
 - 変更があるゾーンだけにreloadを要求します。
 - ローカルのNSDへ直接TCPでSOAを問い合わせ、期待したserialが返った時点で成功とします。
-- `--dns-address` には、リゾルバーを介さない、対象NSDのループバックアドレスとポートを指定します。[NSDの制御コマンド](https://nsd.docs.nlnetlabs.nl/en/latest/manpages/nsd-control.html)
+- `--dns-address` には、リゾルバーを介さない、対象NSDのループバックアドレスとポートを指定します。同じホストの53番でリゾルバーが動いている場合は、権威NSDのポートを指定します。[NSDの制御コマンド](https://nsd.docs.nlnetlabs.nl/en/latest/manpages/nsd-control.html)
 
 ### 削除件数の上限
 

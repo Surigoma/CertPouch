@@ -52,18 +52,53 @@ certpouch cert renew --config /etc/certpouch/server.yaml
 
 **暗号化PEMのCA鍵**
 
-- LinuxにOpenSSLを用意し、パスフレーズを書いた0600の1行のファイルを `certificates.issuer.passphrase_file` に指定します。
+- LinuxにOpenSSLを用意し、パスフレーズを1行で読めるファイルを `certificates.issuer.passphrase_file` に指定します。
 - パスフレーズは専用のファイルディスクリプターからOpenSSLに渡し、復号したCA鍵はプロセスのメモリ上だけで扱います。
 - HSMなどの外部署名器との連携は未対応です。
+
+> [!WARNING]
+> パスフレーズを平文のファイルでディスクに置かないでください。0600にしても、root権限を奪われたときやバックアップから、CA鍵と一緒に取得されます。systemdで動かす場合は、暗号化した資格情報を発行するunitだけに渡します。
+
+**systemdの暗号化資格情報で渡す**
+
+1. パスフレーズを画面に表示せずに入力し、暗号化して保存します。
+
+   ```sh
+   sudo systemd-ask-password -n "CA key passphrase:" \
+     | sudo systemd-creds encrypt --name=issuer-passphrase - \
+         /etc/credstore.encrypted/certpouch-issuer-passphrase
+   ```
+
+2. 発行するunit（`certpouch-pipeline.service` や `certpouch-renew.service`）のドロップインで渡します。
+
+   ```ini
+   [Service]
+   LoadCredentialEncrypted=issuer-passphrase:/etc/credstore.encrypted/certpouch-issuer-passphrase
+   ```
+
+3. `server.yaml` の `certificates.issuer.passphrase_file` に `/run/credentials/<unit名>/issuer-passphrase` を指定します。
+
+- 資格情報を読めないと、本体の実行前に `243/CREDENTIALS` で止まります。
+- TPMのないホストでは、`/var/lib/systemd/credential.secret` が暗号化されていない媒体にあるという警告が出ます。資格情報ファイルは暗号化されますが、ディスク全体を取得されると復号できます。
+- 資格情報は、そのunitの実行中だけ `/run/credentials/` に現れます。手動で `cert renew` を実行するときは、`systemd-run --property=LoadCredentialEncrypted=...` で同じ条件を作ります。
 
 **CA鍵の保護**
 
 - CA鍵は配布ストアの外で0600に保ち、署名する運用ユーザーだけが読めるようにします。
 - 配布サーバーには、CA鍵へのアクセス権を与えません。
+- 同梱unitの `ProtectHome=true` は `/root` も隠します。CA鍵や `certificates.trust_ca_file` など、`/root` 配下のファイルを使う場合は `ProtectHome=tmpfs` にして、必要なファイルを1つずつ `BindReadOnlyPaths=` で渡します。`server.yaml` で参照先を変えたら、unitの許可も合わせて更新します。
+
+> [!WARNING]
+> `pipeline --watch` では、発行の段階で設定ファイルを読めなくても、DNSの同期は続き、unitは `active` のままです。`server.yaml` やunitを変えた後は、`journalctl -u certpouch-pipeline.service` にエラーが出ていないことを確認し、`cert status` で期限を監視してください。
+- 既存CA証明書のBasic Constraintsが `critical` でない場合、CertPouch・curl・OpenSSLは受け入れますが、Python 3.14など厳格な検証を既定にした実装は拒否します。そうした利用側がある場合は、CA証明書の拡張を確認してください。
 
 ## 発行と公開の動作
 
 - 更新ごとに、新しいRSA 2048ビットのリーフ秘密鍵を生成し、DNS/IP SANとServer Authentication用途を設定します。
+- `certificates.targets` を省略して台帳から発行すると、SANは台帳上のFQDNだけになります。
+
+> [!IMPORTANT]
+> 既存の証明書から移行する場合は、旧証明書のSANを確認してください。短縮名やIPアドレスがSANに入っていて、利用側がその名前やIPで接続していると、CertPouchの証明書に切り替えた時点で検証に失敗します。
 - 信頼チェーンの有効期間を超える発行は拒否します。
 - 新しい世代は、検証に通った後にだけ公開します。
 - 更新を判断した後に別の操作が公開世代を変更した場合は、その世代を上書きせずに失敗を返します。

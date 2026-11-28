@@ -39,7 +39,14 @@ type Client struct {
 	CertificateIPs          map[string][]netip.Prefix
 	InventoryExpiresAt      time.Time
 	ClientCertificateHashes [][sha256.Size]byte
+	// Implicit marks the unregistered IP client used by inventory-mode servers
+	// whose default authentication is ip. It has no ID and serves requests that
+	// carry no client ID or an unregistered one, using only inventory IP matches.
+	Implicit bool
 }
+
+// implicitClientPrefix labels unregistered IP clients in logs.
+const implicitClientPrefix = "ip:"
 
 type AuthMode string
 
@@ -63,6 +70,9 @@ func (c Client) ValidateAuthentication() error {
 	if !c.Auth.Valid() {
 		return fmt.Errorf("auth must be token, mtls, or ip")
 	}
+	if c.Implicit && c.Auth != AuthIP {
+		return fmt.Errorf("implicit clients require auth ip")
+	}
 	if c.Auth.UsesToken() {
 		if c.Enabled && c.TokenHash == [sha256.Size]byte{} {
 			return fmt.Errorf("token authentication requires a token hash")
@@ -80,6 +90,9 @@ func (c Client) ValidateAuthentication() error {
 	}
 	if len(c.ClientCertificateHashes) != 0 {
 		return fmt.Errorf("auth ip cannot use client certificate fingerprints")
+	}
+	if c.Implicit && (c.ID != "" || !c.Enabled || c.CertificateIPs == nil) {
+		return fmt.Errorf("implicit ip client requires inventory rules and no client ID")
 	}
 	if c.CertificateIPs == nil && (len(c.AllowedIPs) == 0 || len(c.AllowedCertificates) == 0) {
 		return fmt.Errorf("auth ip requires allowed_ips and allowed_certificates without inventory")
@@ -111,6 +124,7 @@ type Handler struct {
 	now                func() time.Time
 	revocations        *RevocationPolicy
 	inventoryExpiresAt time.Time
+	implicit           *Client
 }
 
 func NewHandler(publications []Publication, clients []Client, logger *slog.Logger) (*Handler, error) {
@@ -141,7 +155,11 @@ func buildHandler(publications []Publication, clients []Client, logger *slog.Log
 func (h *Handler) WithClients(clients []Client) (*Handler, error) {
 	next := &Handler{catalog: h.catalog, clients: make(map[string]Client), logger: h.logger, now: h.now, revocations: h.revocations}
 	for _, client := range clients {
-		if !namePattern.MatchString(client.ID) || next.clients[client.ID].ID != "" ||
+		if client.Implicit {
+			if next.implicit != nil {
+				return nil, fmt.Errorf("duplicate implicit ip client")
+			}
+		} else if !namePattern.MatchString(client.ID) || next.clients[client.ID].ID != "" ||
 			(client.CertificateIPs == nil && len(client.AllowedIPs) == 0) {
 			return nil, fmt.Errorf("invalid or duplicate client configuration")
 		}
@@ -191,7 +209,12 @@ func (h *Handler) WithClients(clients []Client) (*Handler, error) {
 				return nil, fmt.Errorf("duplicate client certificate assignment")
 			}
 		}
-		next.clients[client.ID] = client
+		if client.Implicit {
+			implicit := client
+			next.implicit = &implicit
+		} else {
+			next.clients[client.ID] = client
+		}
 		if expires := client.InventoryExpiresAt; !expires.IsZero() &&
 			(next.inventoryExpiresAt.IsZero() || expires.Before(next.inventoryExpiresAt)) {
 			next.inventoryExpiresAt = expires
@@ -364,11 +387,22 @@ func (h *Handler) logOperation(operation, clientID, name, result, category strin
 
 func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 	ids, headers := r.Header.Values("X-CertPouch-Client-ID"), r.Header.Values("Authorization")
-	if len(ids) != 1 {
+	if len(ids) > 1 {
 		return Client{}, false
 	}
-	client, ok := h.clients[ids[0]]
-	if !ok || !client.Enabled || (!client.InventoryExpiresAt.IsZero() && !h.now().Before(client.InventoryExpiresAt)) {
+	var client Client
+	registered := false
+	if len(ids) == 1 {
+		client, registered = h.clients[ids[0]]
+	}
+	if !registered {
+		// Without a registered ID, only the implicit inventory IP client applies.
+		if h.implicit == nil {
+			return Client{}, false
+		}
+		client = *h.implicit
+	}
+	if !client.Enabled || (!client.InventoryExpiresAt.IsZero() && !h.now().Before(client.InventoryExpiresAt)) {
 		return Client{}, false
 	}
 	if h.revocations.denies(client.ID, r) {
@@ -393,6 +427,9 @@ func (h *Handler) authenticate(r *http.Request) (Client, bool) {
 		return Client{}, false
 	}
 	ip = ip.WithZone("").Unmap()
+	if client.Implicit {
+		client.ID = implicitClientPrefix + ip.String()
+	}
 	if client.CertificateIPs != nil {
 		for name, prefixes := range client.CertificateIPs {
 			for _, prefix := range prefixes {

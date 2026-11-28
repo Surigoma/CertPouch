@@ -102,6 +102,7 @@ See the [configuration guide](docs/configure.md), the [server YAML example](conf
 - Forwarding headers are ignored.
 - With a TLS client CA, all connections require a verified client certificate. Token mode also checks a bearer token, while mTLS mode checks the certificate fingerprint alone for identity.
 - IP mode trusts the direct source address. It requires inventory IP matching or static assignments with exact IP addresses and explicit certificate names. Use it only on networks where source addresses are trusted.
+- In DNS inventory mode with `distribution.auth: ip`, hosts that are not listed in `distribution.clients` can fetch the names whose inventory address matches their source IP. Requests without a client ID or with an unregistered ID use this rule; registered IDs keep their own settings, and disabled IDs are rejected.
 - The runtime revocation list can deny a client ID or an mTLS fingerprint.
 
 Use documentation-only addresses and domains in examples. Restrict access to configuration, credentials, and signing keys. See [configuration](docs/SPEC/02-configuration.md), [DNS authorization](docs/dns-inventory.md), [mTLS](docs/mtls.md), and [revocation](docs/client-revocation.md).

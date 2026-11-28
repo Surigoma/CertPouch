@@ -37,6 +37,29 @@ certpouch status --config /etc/certpouch/client.yaml
 
 サービスには、配置先の `current/fullchain.pem` と `current/private-key.pem` を参照させます。
 
+## 既存のサービスを切り替える
+
+nginxなど、すでに別の証明書で動いているサービスをCertPouchの配置先へ切り替える手順です。サービスが `current/` を参照する前に、初回配置が必要です。
+
+1. 現在サービスが配信している証明書の期限とSANを確認し、サービスの設定を退避します。
+2. `service` を外した `client.yaml` で1回Pullし、`current/` を作ります。
+3. サービスの証明書を `current/fullchain.pem`、秘密鍵を `current/private-key.pem` に変えます。nginxでは `ssl_certificate` と `ssl_certificate_key` です。
+4. `nginx -t` などで設定を検証してからreloadし、配信されたリーフが `current/certificate.pem` と一致することを確認します。一致しなければ、退避した設定に戻してreloadします。
+5. `service`（nginxでは `unit: nginx.service`、`action: reload`）と `verify_tls` を含む設定に戻し、定期実行を有効にします。
+
+```sh
+echo | openssl s_client -connect 127.0.0.1:443 -servername web.example.internal 2>/dev/null \
+  | openssl x509 -noout -fingerprint -sha256
+openssl x509 -in /etc/certpouch/certificates/web.example.internal/current/certificate.pem \
+  -noout -fingerprint -sha256
+```
+
+> [!IMPORTANT]
+> サービスのreloadやrestartには管理権限が必要です。ユーザーのsystemdタイマー（`systemctl --user`）で動かしたPullはnginxをreloadできないため、rootのシステムタイマーで実行します。その場合、バイナリと `client.yaml` はroot所有の場所（`/usr/local/bin/certpouch`、`/etc/certpouch/`）に置き、ホームディレクトリのバイナリをrootで実行しないでください。
+
+- `client.yaml` は0600にします。権限が広いと `file permissions are too broad` で拒否されます。
+- CertPouchの証明書は、SANが台帳上のFQDNだけになる場合があります。短縮名やIPで接続している利用者がいないか、事前に確認してください。[発行の動作](certificate-renewal.md#発行と公開の動作)
+
 ## systemdサービスで反映する
 
 実際に配信された証明書まで自動で確認するには、証明書ごとに `service.verify_tls` を設定します。
