@@ -50,7 +50,7 @@ inventory:
     credentials_file: "/etc/certpouch/secrets/sheets.json"
 ```
 
-先ほどのサンプル行を試す場合は `dns.zone` を `example.internal` とし、個別プレビュー用に `dns.zones.serial: 1` を追加します。次を実行します。この段階では稼働中のゾーンに反映されません。
+先ほどのサンプル行を試す場合は `dns.zone` を `example.internal` とします。serialは設定に書かなくても、プレビューはserial 1で表示されます。次を実行します。この段階では稼働中のゾーンに反映されません。
 
 ```sh
 sudo certpouch dns fetch --config /etc/certpouch/server.yaml
@@ -76,7 +76,7 @@ CertPouchには、**配布APIへのHTTPS接続を確認する証明書**と、**
 
 たとえば配布APIが `cert-server.example.internal`、利用サービスが `portal.example.internal` なら、前者はクライアントの接続先、後者は取得する証明書名です。双方を同じCAが署名している構成なら、信頼用の公開CAバンドルを共用できます。**CA秘密鍵は同期・発行を行うサーバー側だけ**に置きます。手順3のSheets用JSON鍵は、Google Sheetsにアクセスするための資格情報です。
 
-1. 試験用の値を実運用の値に置き換え、プレビュー用の固定 `serial` を外します。設定例の `dns.nsd`、`certificates`、`distribution` を埋め、[専用NSD includeとディレクトリ](dns-sync.md)を準備します。同じキャッシュを使う場合は、同期ユーザーが所有し、配布ユーザーが読める権限を設定します。`certificates.targets` を書かずに `certificates.issuer` を設定すると台帳上のすべての名前が発行対象になり、NSD反映前のキャッシュ更新を防ぐため `dns fetch` は使えなくなります。以降の取得は次の `pipeline` で行います。
+1. 試験用の値を実運用の値に置き換えます。設定例の `dns.nsd`、`certificates`、`distribution` を埋め、[専用NSD includeとディレクトリ](dns-sync.md)を準備します。同じキャッシュを使う場合は、同期ユーザーが所有し、配布ユーザーが読める権限を設定します。`certificates.targets` を書かずに `certificates.issuer` を設定すると台帳上のすべての名前が発行対象になり、NSD反映前のキャッシュ更新を防ぐため `dns fetch` は使えなくなります。以降の取得は次の `pipeline` で行います。
 2. 同期サービスを動かすユーザーで `certpouch pipeline --check --config /etc/certpouch/server.yaml` を実行します。これはローカルの前提確認です。次に `certpouch pipeline --once --config /etc/certpouch/server.yaml` を実行して、NSD反映と証明書発行を確認します。
 3. 初回同期が成功したら、[同期用unit](../configs/systemd/certpouch-pipeline.service)と[配布用unit](../configs/systemd/certpouch-server.service)で常駐させます。受け取り側は [client.yamlの例](../configs/client.example.yaml)を設定し、`certpouch pull --dry-run --config /etc/certpouch/client.yaml` で取得予定を確認します。
 

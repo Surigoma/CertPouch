@@ -55,6 +55,43 @@ dns:
 	if err != nil || len(entries) != 2 {
 		t.Fatal("preview wrote files")
 	}
+	t.Run("configuration without a serial", func(t *testing.T) {
+		raw, err := os.ReadFile(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		noSerial := filepath.Join(t.TempDir(), "dns.yaml")
+		if err := os.WriteFile(noSerial, bytes.Replace(raw, []byte("    serial: 1\n"), nil, 1), 0600); err != nil {
+			t.Fatal(err)
+		}
+		run := func(want int, args ...string) (string, string) {
+			t.Helper()
+			var out, diagnostic bytes.Buffer
+			if code := runDNSSync(t.Context(), append([]string{"--config", noSerial}, args...), &out, &diagnostic); code != want {
+				t.Fatalf("%v exit %d, want %d: %s", args, code, want, &diagnostic)
+			}
+			return out.String(), diagnostic.String()
+		}
+		out, diagnostic := run(0, "--dry-run")
+		if !strings.Contains(out, "( 1 3600") || !strings.Contains(diagnostic, "preview uses serial 1") {
+			t.Fatalf("preview without serial: %q %q", out, diagnostic)
+		}
+		if out, diagnostic := run(0, "--dry-run", "--serial", "2026112801"); !strings.Contains(out, "( 2026112801 3600") || diagnostic != "" {
+			t.Fatalf("explicit serial preview: %q %q", out, diagnostic)
+		}
+		if _, diagnostic := run(1, "--stage-dir", t.TempDir()); !strings.Contains(diagnostic, "pass --serial N") {
+			t.Fatalf("staging without serial: %q", diagnostic)
+		}
+		if _, diagnostic := run(1, "--dry-run", "--serial", "5", "--serial-from", t.TempDir()); !strings.Contains(diagnostic, "only one of") {
+			t.Fatalf("two serial flags: %q", diagnostic)
+		}
+		run(2, "--dry-run", "--serial", "0")
+		var stdout, stderr bytes.Buffer
+		if code := runDNSSync(t.Context(), []string{"--config", config, "--dry-run", "--serial", "5"}, &stdout, &stderr); code != 1 ||
+			!strings.Contains(stderr.String(), "remove them from server.yaml") {
+			t.Fatalf("YAML serial with --serial: %d %q", code, &stderr)
+		}
+	})
 	t.Run("advance serials from a staged baseline", func(t *testing.T) {
 		if runtime.GOOS != "linux" {
 			t.Skip("DNS snapshots use Linux file permissions")

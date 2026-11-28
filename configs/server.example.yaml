@@ -26,7 +26,8 @@ dns:
     nameservers: ["ns1.example.net"]
     reverse_zones: ["2.0.192.in-addr.arpa"]
     ttl: 300
-    # serial: 1  # Only for an individual dns sync before NSD serves a managed generation.
+    # No serial here: the first candidate uses dns sync --serial N, later ones
+    # advance the serial NSD serves. A dry run without a serial uses 1.
     refresh: 3600
     retry: 600
     expire: 604800

@@ -31,7 +31,7 @@
 - `server --check-config` は待ち受けを開始せずに設定、TLS鍵ペア、公開世代を検証する。WSLでは同梱unitの実行ユーザーとパスをテスト用に差し替え、非特権ユーザーで起動しHTTPS healthが応答することを確認した。
 - クライアントの `service.verify_tls` を指定すると、サービスがアクティブ世代の証明書を返すことを配置後と復旧時に確認できる。[Keycloak向け設定例](client-deployment.md)
 - `dns sync` は既存キャッシュまたはCSVからNSD向けゾーン候補を生成する。`dns apply` は専用管理ディレクトリで候補と切り戻し用の世代を検証し、NSDへの反映をSOA serialで確認する。[DNSゾーン生成と適用](dns-sync.md)
-- DNS設定で固定レコードを追加できる。`dns sync --serial-from` で管理中の `current` から次のserialを計算し、`dns diff` で適用前の差分を確認できる。
+- DNS設定で固定レコードを追加できる。`dns sync --serial-from` で管理中の `current` から次のserialを計算し、初回の候補は `--serial N` で指定する。`configure dns` はserialを書かず、serialのない `--dry-run` はserial 1で表示する。`dns diff` で適用前の差分を確認できる。
 - `dns fetch` はGoのOAuth2ライブラリでサービスアカウントを認証し、公式Sheetsクライアントで台帳を取得する。全範囲と内容の検証に通った場合だけキャッシュを置き換える。[取得設定と定期実行](sheets-fetch.md)
 - 配布サーバーは `distribution.refresh_interval` ごとに、キャッシュ・CSVのIP認可をサーバー再起動なしで反映する。不正な台帳を読み込んだ場合は回復まで台帳モードの認証を停止する。
 - `dns fetch` はキャッシュと照合できる最終成功記録を保存する。`dns fetch --status` はその状態をローカルで表示し、`inventory.max_age` は期限切れの台帳による新規配布要求を拒否する。[キャッシュの期限管理](dns-inventory.md)

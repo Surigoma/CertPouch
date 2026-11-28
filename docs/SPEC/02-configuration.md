@@ -39,7 +39,7 @@ CertPouch v1のトップレベルキー（`server`、`storage`、`dns_inventory`
 | 項目 | 検証・役割 |
 | --- | --- |
 | `zone` | 正引きゾーン名。台帳上の相対名を完全修飾名にする |
-| `zones` | SOA（`primary`、`mailbox`、`refresh`、`retry`、`expire`、`negative_ttl`）、`nameservers`、`ttl`、`reverse_zones`、`static_records`。`serial` と `previous_serials` は管理世代を持つ前の個別 `dns sync` だけで使い、管理中の世代からserialを引き継ぐ場合は外す |
+| `zones` | SOA（`primary`、`mailbox`、`refresh`、`retry`、`expire`、`negative_ttl`）、`nameservers`、`ttl`、`reverse_zones`、`static_records`。`serial` と `previous_serials` は任意で、管理世代を持つ前の個別 `dns sync` だけで使う。通常は書かず、初回の候補は `dns sync --serial N`、以降は管理中の世代から引き継ぐ。serialの出所がない `dns sync --dry-run` はserial 1で表示する |
 | `nsd.config_file`, `nsd.include_file` | NSDの設定と、CertPouch専用のinclude |
 | `nsd.stage_dir`, `nsd.zone_dir` | 候補と管理世代を置く既存の絶対ディレクトリ |
 | `nsd.dns_address` | SOA確認に使うループバックのアドレス。既定 `127.0.0.1:53` |

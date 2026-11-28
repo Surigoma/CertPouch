@@ -50,7 +50,6 @@ func runConfigure(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	prefix := flags.String("fallback-prefix", "", "IPv4 prefix used before inventory overrides")
 	primary := flags.String("primary", "", "SOA primary nameserver")
 	mailbox := flags.String("mailbox", "", "SOA responsible mailbox in DNS name form")
-	serial := flags.Uint64("serial", 1, "initial SOA serial")
 	ttl := flags.Uint64("ttl", 300, "zone TTL")
 	spreadsheet := flags.String("spreadsheet-id", "", "optional Google Sheets spreadsheet ID")
 	serviceAccount := flags.String("service-account", "", "absolute path to the service account JSON")
@@ -144,7 +143,7 @@ func runConfigure(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		nameservers = append(nameservers, *primary)
 	}
 	if !filepath.IsAbs(*out) || !filepath.IsAbs(*cache) || *zone == "" || *prefix == "" || *primary == "" ||
-		*mailbox == "" || len(nameservers) == 0 || *serial > 1<<32-1 || *ttl > 1<<32-1 {
+		*mailbox == "" || len(nameservers) == 0 || *ttl > 1<<32-1 {
 		flags.Usage()
 		return 2
 	}
@@ -155,7 +154,7 @@ func runConfigure(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	}
 	path, err := writeDNSConfiguration(filepath.Clean(*out), dnsConfigInput{
 		Cache: *cache, Zone: *zone, Prefix: *prefix, Primary: *primary, Mailbox: *mailbox,
-		Nameservers: nameservers, Serial: uint32(*serial), TTL: uint32(*ttl),
+		Nameservers: nameservers, TTL: uint32(*ttl),
 		Spreadsheet: *spreadsheet, ServiceAccount: *serviceAccount, Ranges: ranges,
 	})
 	if err != nil {
@@ -189,7 +188,7 @@ func prompt(reader *bufio.Reader, output io.Writer, label, defaultValue string) 
 type dnsConfigInput struct {
 	Cache, Zone, Prefix, Primary, Mailbox, Spreadsheet, ServiceAccount string
 	Nameservers, Ranges                                                []string
-	Serial, TTL                                                        uint32
+	TTL                                                                uint32
 }
 
 func writeDNSConfiguration(dir string, input dnsConfigInput) (path string, err error) {
@@ -226,12 +225,11 @@ func writeDNSConfiguration(dir string, input dnsConfigInput) (path string, err e
     mailbox: %q
     nameservers: %s
     ttl: %d
-    serial: %d
     refresh: 3600
     retry: 600
     expire: 604800
     negative_ttl: 300
-`, input.Zone, input.Primary, input.Mailbox, quotedList(input.Nameservers), input.TTL, input.Serial)
+`, input.Zone, input.Primary, input.Mailbox, quotedList(input.Nameservers), input.TTL)
 	path = filepath.Join(dir, "server.yaml")
 	if err := os.WriteFile(path, []byte(dnsBody), 0600); err != nil {
 		return "", err
