@@ -13,12 +13,19 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func init() {
+	if os.Getenv(gin.EnvGinMode) == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+}
 
 type Client struct {
 	ID                  string
