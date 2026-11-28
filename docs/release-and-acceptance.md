@@ -6,6 +6,8 @@ Go 1.26.11以降を用意し、リリース対象コミットをきれいなチ�
 
 `bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"` は、両アーカイブのSHA-256と、内部バイナリのOS・アーキテクチャ・コミットID・未コミット変更の有無を検証する。Linux amd64では、アーカイブから取り出したamd64版で `server --help` も実行する。GitHub Actionsは添付ジョブでタグを取得し直し、検証済みのコミットと一致した場合に成果物を下書きへ添付する。
 
+安定版の梱包には第2引数でタグを渡す。たとえば `bash scripts/package-release.sh dist v0.2.1` は `--version` にそのタグを埋め込む。検証スクリプトの第3引数にも同じ版を渡す。単体バイナリの `update` は、この版をGitHubが返す最新の安定版と比較する。
+
 GitHub Actionsの `Verify` はmainへのpushとPull Requestで `go vet` とraceテストを実行する。
 
 1. mainへのpushを受け、Release PleaseがConventional CommitsからバージョンとCHANGELOGを更新するリリースPRを作成する。初回の候補は `v0.1.0`。

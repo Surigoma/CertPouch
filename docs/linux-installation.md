@@ -25,6 +25,35 @@ sudo ./install.sh --prefix /opt/certpouch
 - DNS管理: [DNSゾーン生成と適用](dns-sync.md)
 - Sheets取得: [Sheetsからの取得](sheets-fetch.md)
 
+## GitHub Releasesから単体バイナリを更新する
+
+Linux amd64・arm64では、`update` 対応の安定版リリースから配置した単体バイナリを、その場所で更新できる。たとえばホームディレクトリに置いた場合は次のように実行する。
+
+```sh
+~/certpouch/certpouch --version
+~/certpouch/certpouch update --check
+~/certpouch/certpouch update
+```
+
+公開済みの安定版が現在より新しければ、対応するアーカイブをHTTPSで取得し、`SHA256SUMS` と実行ファイルの版を照合して切り替える。GitHubトークンは不要。実行ファイルと親ディレクトリは更新ユーザーの所有とし、他のユーザーからの書き込みを禁止する。`install.sh` 管理下の配置は、引き続き同梱のインストーラーで更新する。
+
+日次更新を有効にするには、`configs/systemd/certpouch-update.service` と `certpouch-update.timer` を `~/.config/systemd/user/` にコピーする。別の場所に置く場合はserviceの `ExecStart` を実際のパスに合わせる。
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now certpouch-update.timer
+systemctl --user list-timers certpouch-update.timer
+```
+
+タイマーはユーザーのsystemdマネージャーが稼働中に動作する。更新は次回の起動から使われる。設定、キャッシュ、証明書には触れず、稼働中のサービスも再起動しない。ログは `journalctl --user -u certpouch-update.service` で確認できる。
+
+一つ前のバイナリに戻す場合はタイマーを停止し、更新サービスの実行完了を確認してから次のコマンドで戻す。
+
+```sh
+systemctl --user disable --now certpouch-update.timer
+mv -T -- ~/certpouch/certpouch.previous ~/certpouch/certpouch
+```
+
 ## アンインストール
 
 既定の配置を削除する。

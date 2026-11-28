@@ -1,0 +1,8 @@
+[Unit]
+Description=Update the standalone CertPouch executable from GitHub Releases
+
+[Service]
+Type=oneshot
+ExecStart=%h/certpouch/certpouch update
+UMask=0077
+NoNewPrivileges=true

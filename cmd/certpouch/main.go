@@ -32,6 +32,13 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	rest := args[1:]
 	switch args[0] {
+	case "--version":
+		if len(rest) == 0 {
+			fmt.Fprintln(os.Stdout, releaseVersion)
+			return 0
+		}
+	case "update":
+		return runUpdate(ctx, rest, os.Stdout, stderr)
 	case "pipeline":
 		return runPipeline(ctx, rest, os.Stdout, stderr)
 	case "configure":
@@ -184,6 +191,8 @@ Setup and regular operation:
   status                        Inspect local deployment state
 
 Manual operations and diagnostics:
+  update                        Check for or install a stable GitHub release
+  --version                     Show the executable version
   pipeline                      Stage or explicitly apply a DNS candidate
   dns fetch|sync|diff|apply     Run individual DNS operations
   cert publish|renew|status     Manage and inspect server certificates

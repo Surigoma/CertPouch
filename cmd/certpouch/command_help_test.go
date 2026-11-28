@@ -27,6 +27,7 @@ func TestCommandHelp(t *testing.T) {
 		{[]string{"pull", "--help"}, 0, "-dry-run"},
 		{[]string{"pull"}, 2, "Usage:"},
 		{[]string{"status", "--help"}, 0, "-config"},
+		{[]string{"update", "--help"}, 0, "-check"},
 		{[]string{"server", "--help"}, 0, "-check-config"},
 		{[]string{"server"}, 2, "Usage:"},
 		{[]string{"dns", "sync", "--help"}, 0, "-stage-dir"},

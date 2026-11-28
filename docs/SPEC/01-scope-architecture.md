@@ -45,6 +45,7 @@ flowchart LR
 | `internal/deployment` | ローカル配置、systemd操作、復旧 |
 | `internal/dns` | 在庫アダプター、ゾーン生成・適用 |
 | `internal/sheets` | Google Sheets APIとサービスアカウント認証による台帳取得 |
+| `internal/update` | GitHub Releaseの確認、配布アーカイブの検証、Linux単体バイナリの切り替え |
 | `configs`、`docs`、`assets` | 設定例・systemdユニット例、文書、ブランド資産 |
 
 標準ライブラリを優先する。必要性なしにDB、Kubernetes、メッセージブローカー、外部オーケストレーターを追加しない。小さなパッケージ、contextによる中断、SIGTERM/SIGINTでの正常終了を基本とする。可変グローバル状態と不要なgoroutineを避ける。
@@ -54,6 +55,7 @@ flowchart LR
 | コマンド | 動作 |
 | --- | --- |
 | `configure dns` | フラグまたは対話入力からDNS設定と任意のSheets取得設定を新規ディレクトリへ生成 |
+| `update [--check]` | GitHubの安定版Releaseを確認し、Linuxの単体バイナリを検証後に更新。 `--check` は版の比較だけを行う |
 | `configure server` / `configure client` | サーバー・クライアントの初期設定を新規ディレクトリに生成 |
 | `server --config PATH` | 設定・保存領域を検証してHTTPS配布を開始 |
 | `server --check-config --config PATH` | 待ち受けせずに設定・TLS鍵ペア・公開ストアを確認 |

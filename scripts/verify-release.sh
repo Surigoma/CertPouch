@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# != 2 || ! "$2" =~ ^[[:xdigit:]]{40}$ ]]; then
-  echo "Usage: $0 ARTIFACT_DIRECTORY EXPECTED_COMMIT_SHA" >&2
+if [[ $# -lt 2 || $# -gt 3 || ! "$2" =~ ^[[:xdigit:]]{40}$ ]]; then
+  echo "Usage: $0 ARTIFACT_DIRECTORY EXPECTED_COMMIT_SHA [EXPECTED_VERSION]" >&2
   exit 2
 fi
 
 cd -- "$1"
 expected_commit=$2
+expected_version=${3:-dev}
 if ! sha256sum --binary certpouch-linux-amd64.tar.gz certpouch-linux-arm64.tar.gz |
     cmp -s - <(sed -E 's/^([a-f0-9]{64})  /\1 */' SHA256SUMS); then
   echo "SHA256SUMS does not match the two release archives" >&2
@@ -29,6 +30,7 @@ for arch in amd64 arm64; do
   done
   if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 && "$arch" == amd64 ]]; then
     chmod 0700 "$binary"
+    [[ $("$binary" --version) == "$expected_version" ]]
     "$binary" server --help > /dev/null 2>&1
     install_root="$scratch/install-root"
     tar -xOzf "$name.tar.gz" "$name/install.sh" > "$scratch/install.sh"

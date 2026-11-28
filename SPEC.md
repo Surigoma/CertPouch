@@ -36,6 +36,7 @@ See the [architecture diagram](docs/SPEC/01-scope-architecture.md#全体構成).
 | Command | Behavior |
 | --- | --- |
 | `install.sh` / `uninstall.sh` | On Linux, installs or removes the binary while preserving configuration, credentials, certificates, state, and systemd units. |
+| `certpouch update [--check]` | Checks the latest stable GitHub Release and atomically updates a standalone Linux executable after verification. |
 | `certpouch configure dns` | Creates validated DNS and optional Sheets-fetch configuration from flags or interactive prompts without overwriting existing files. |
 | `certpouch configure client` | Generates and validates a client YAML, random token, SHA-256 token hash, and deployment directory under a new output directory on Linux. |
 | `certpouch configure server` | Generates and validates a server YAML and publication store from the client hash, TLS files, and existing DNS inventory. |

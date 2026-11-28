@@ -2,6 +2,11 @@
 set -euo pipefail
 
 output_dir=${1:-dist}
+release_version=${2:-dev}
+if [[ $release_version != dev && ! $release_version =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "Expected a stable release tag such as v0.2.1" >&2
+  exit 2
+fi
 mkdir -p "$output_dir"
 build_dir=$(mktemp -d)
 trap 'rm -rf -- "$build_dir"' EXIT
@@ -12,7 +17,7 @@ archives=()
 for arch in amd64 arm64; do
   name="certpouch-linux-$arch"
   mkdir "$build_dir/$name"
-  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -o "$build_dir/$name/certpouch" ./cmd/certpouch
+  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-X main.releaseVersion=$release_version" -o "$build_dir/$name/certpouch" ./cmd/certpouch
   git archive HEAD LICENSE README.md README.ja.md assets configs docs scripts/install.sh scripts/uninstall.sh | tar -xf - -C "$build_dir/$name"
   mv "$build_dir/$name/scripts/install.sh" "$build_dir/$name/install.sh"
   mv "$build_dir/$name/scripts/uninstall.sh" "$build_dir/$name/uninstall.sh"

@@ -64,18 +64,21 @@ jobs:
       - run: go test -race ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
       - name: Package Linux binaries
-        run: bash scripts/package-release.sh
+        env:
+          RELEASE_TAG: ${{ steps.target.outputs.tag }}
+        run: bash scripts/package-release.sh dist "${RELEASE_TAG:-dev}"
       - name: Verify packaged binaries
         id: verify
         env:
           RELEASE_COMMIT: ${{ needs.release-please.outputs.commit }}
+          RELEASE_TAG: ${{ steps.target.outputs.tag }}
         run: |
           commit=$(git rev-parse HEAD)
           if [[ -n "$RELEASE_COMMIT" && "$commit" != "$RELEASE_COMMIT" ]]; then
             echo "::error::Checked-out tag differs from the commit reported by Release Please"
             exit 1
           fi
-          bash scripts/verify-release.sh dist "$commit"
+          bash scripts/verify-release.sh dist "$commit" "${RELEASE_TAG:-dev}"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
