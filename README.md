@@ -9,35 +9,47 @@
 
 **Private certificates, delivered simply.**
 
-CertPouch is a self-hosted project for private DNS, private PKI, and pull-based certificate distribution. It is designed as a single Go binary that works with your existing private CA.
+CertPouch is a self-hosted tool for private DNS, private PKI, and pull-based certificate distribution. It is a single Go binary that works with your existing private CA.
 
-**Project status:** Certificate distribution, NSD zone management, and renewal with an existing private CA are implemented. Deployment is supported on Linux with systemd. See the acceptance guide before switching an existing environment over. [Release and acceptance guide (Japanese)](docs/release-and-acceptance.md)
+> **Project status:** Certificate distribution, NSD zone management, and renewal with an existing private CA are implemented. Deployment targets Linux with systemd. Before you switch an existing environment over, run the checks in the [release and acceptance guide (Japanese)](docs/release-and-acceptance.md).
 
 ## How it works
 
-A central server stores certificates and their keys. In DNS inventory mode, an authenticated host can download a certificate when its source IP matches the certificate name in the inventory. Operators can grant access from additional hosts. The pull client validates each bundle, switches versions, and rolls back if service activation fails. The server can refresh published generations without restarting. [DNS inventory configuration](docs/dns-inventory.md) · [Server publication](docs/server-publication.md)
+1. A central server stores certificates and their private keys.
+2. A receiving host authenticates and asks for the certificates it needs. In DNS inventory mode, the server allows a download when the host's source IP matches the certificate name in the inventory. Operators can also allow additional hosts.
+3. The pull client validates each bundle, switches to the new version, and rolls back if the service action fails.
+4. The server picks up newly published generations without a restart.
 
-## Configuration for a first deployment
+See [DNS inventory configuration](docs/dns-inventory.md) and [server publication](docs/server-publication.md).
 
-Linux releases include scripts that install or remove the binary while preserving operational data. See [Linux installation and removal](docs/linux-installation.md).
+## Getting started
 
-Use `certpouch configure client` and `certpouch configure server` to create the initial configuration, then follow the walkthrough to publish a certificate and perform the first pull. [First deployment walkthrough (Japanese)](docs/quickstart.md)
+1. Install the binary. Linux releases include scripts that install or remove it while keeping operational data. See [Linux installation and removal](docs/linux-installation.md).
+2. Choose automated Sheets synchronization or manual distribution of an existing certificate. Follow the configuration steps for your chosen workflow in the [first deployment walkthrough (Japanese)](docs/quickstart.md).
 
-To distribute certificates using an existing DNS inventory cache or CSV, start with one YAML file on the server and one on each receiving host. Each YAML file references the TLS, CA, and token files it needs.
+### Configuration files
 
-- The server uses `server.yaml` for both `server` and `cert publish`. [Server example](configs/server.example.yaml)
-- Each receiving host uses `client.yaml` for both `pull` and `status`. [Client example](configs/client.example.yaml)
+You manage two YAML files. Each one references the TLS, CA, and token files it needs.
 
-Operator configuration is limited to `server.yaml` and `client.yaml`. The server file can contain distribution, Google Sheets, DNS generation, and CA renewal sections. Credentials, certificates, and the optional runtime revocation list remain separate protected data files. [Sheets refresh](docs/sheets-fetch.md) · [DNS generation](docs/dns-sync.md) · [Certificate renewal](docs/certificate-renewal.md) · [Client revocation](docs/client-revocation.md)
+| File | Where | Used by | Example |
+| --- | --- | --- | --- |
+| `server.yaml` | Server | `server`, `pipeline`, `dns ...`, `cert ...` | [server.example.yaml](configs/server.example.yaml) |
+| `client.yaml` | Each receiving host | `pull`, `status` | [client.example.yaml](configs/client.example.yaml) |
 
-## What you can do
+`server.yaml` holds the distribution, Google Sheets, DNS generation, and CA renewal settings. Credentials, certificates, and the optional runtime revocation list stay in separate protected files. See [Sheets refresh](docs/sheets-fetch.md), [DNS generation](docs/dns-sync.md), [certificate renewal](docs/certificate-renewal.md), and [client revocation](docs/client-revocation.md).
 
-- Publish existing certificates and deploy them over HTTPS with per-client authentication, certificate-level source IP controls, and rollback. [Server setup](docs/server-publication.md) · [Client deployment](docs/client-deployment.md)
-- Generate NSD forward and IPv4 reverse zones from inventory, review differences, and apply validated snapshots. [DNS deployment](docs/dns-sync.md)
-- Issue and renew certificates using an existing private CA, with optional systemd scheduling. [Certificate renewal](docs/certificate-renewal.md)
-- Enable mutual TLS and reload client revocations at runtime. [Mutual TLS](docs/mtls.md) · [Client revocation](docs/client-revocation.md)
+## Features
+
+| Feature | Guides |
+| --- | --- |
+| Publish existing certificates and deploy them over HTTPS with per-client authentication, per-certificate source IP control, and rollback | [Server setup](docs/server-publication.md) · [Client deployment](docs/client-deployment.md) |
+| Generate NSD forward and IPv4 reverse zones from the inventory, review the differences, and apply validated snapshots | [DNS deployment](docs/dns-sync.md) |
+| Issue and renew certificates with an existing private CA, optionally on a systemd timer | [Certificate renewal](docs/certificate-renewal.md) |
+| Require mutual TLS and reload client revocations at runtime | [Mutual TLS](docs/mtls.md) · [Client revocation](docs/client-revocation.md) |
 
 ## CLI
+
+### Everyday commands
 
 | Command | Purpose |
 | --- | --- |
@@ -49,19 +61,19 @@ Operator configuration is limited to `server.yaml` and `client.yaml`. The server
 | `certpouch pull --dry-run` | Preview pending updates |
 | `certpouch status` | Inspect local certificates and deployment status |
 
-Manual operations and diagnostics
+### Manual operations and diagnostics
 
 | Command | Purpose |
 | --- | --- |
 | `certpouch cert publish` | Register an existing certificate as a new distribution generation |
-| `certpouch dns sync --dry-run` | Preview NSD zone files from the DNS inventory snapshot |
-| `certpouch dns fetch` | Refresh the inventory snapshot from Google Sheets |
-| `certpouch dns apply` | Activate a validated snapshot on a managed NSD server |
-| `certpouch dns diff` | Compare a candidate with the active or baseline snapshot |
-| `certpouch cert renew` | Issue or renew configured certificates using an existing private CA |
+| `certpouch cert renew` | Issue or renew configured certificates with an existing private CA |
 | `certpouch cert status` | Check the expiry and local state of published certificates |
+| `certpouch dns fetch` | Refresh the inventory snapshot from Google Sheets |
+| `certpouch dns sync --dry-run` | Preview NSD zone files from the inventory snapshot |
+| `certpouch dns diff` | Compare a candidate with the active or baseline snapshot |
+| `certpouch dns apply` | Activate a validated snapshot on a managed NSD server |
 
-The automated workflow uses a single `server.yaml`. [DNS zone generation and activation](docs/dns-sync.md) · [Publishing certificates](docs/server-publication.md) · [Certificate renewal](docs/certificate-renewal.md)
+Automated operation needs only `server.yaml`. See [DNS zone generation and activation](docs/dns-sync.md), [publishing certificates](docs/server-publication.md), and [certificate renewal](docs/certificate-renewal.md).
 
 ## Documentation and license
 
