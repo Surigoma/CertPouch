@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.0.0](https://github.com/Surigoma/CertPouch/compare/v0.2.1...v1.0.0) (2026-11-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** Replace certpouch init server and certpouch init client with certpouch configure server and certpouch configure client.
+* **config:** configure dns の生成先は server.yaml に変更。新規構成では DNS、Sheets、更新設定を server.yaml にまとめ、同梱のsystemdユニットもこのパスを参照する。
+
+### Features
+
+* automate inventory-driven DNS and certificate synchronization ([b5dac6b](https://github.com/Surigoma/CertPouch/commit/b5dac6bdc9c346b74c0f96020e7792cd8e8330ef))
+* **config:** simplify DNS and certificate operations ([c948d57](https://github.com/Surigoma/CertPouch/commit/c948d57c0fa5d2dd611bab643217b1bd7e51bada))
+* **sync:** simplify setup and reconcile confirmed inventory ([dfbb83a](https://github.com/Surigoma/CertPouch/commit/dfbb83af8f8b2f53170d2601ab22e7e3f2896f0f))
+* **update:** add standalone updates from GitHub Releases ([847f8dc](https://github.com/Surigoma/CertPouch/commit/847f8dc1e9fdd5517203d5f28fd85373d58737e4))
+
+
+### Bug Fixes
+
+* **deps:** bump golang.org/x/net from 0.62.0 to 0.63.0 ([#6](https://github.com/Surigoma/CertPouch/issues/6)) ([6dc0988](https://github.com/Surigoma/CertPouch/commit/6dc098893ed69f1e1e740fc03ed15cbe176d30bf))
+* **deps:** bump google.golang.org/api from 0.298.0 to 0.316.0 ([#7](https://github.com/Surigoma/CertPouch/issues/7)) ([4e2e787](https://github.com/Surigoma/CertPouch/commit/4e2e787bedcae0f152e94393d521aadbf8357069))
+* **pull:** allow deployment without a service action ([94493a8](https://github.com/Surigoma/CertPouch/commit/94493a8827c14d22904f705636d372c3cde618d3))
+* **sync:** keep unrelated certificate publications available ([34e6cab](https://github.com/Surigoma/CertPouch/commit/34e6cab996dd711b5f16c23180f6c446d7a57cb6))
+* **sync:** recover interrupted inventory updates ([6d8f6f7](https://github.com/Surigoma/CertPouch/commit/6d8f6f7aac6f8cd4cfc321c46615b12b76c72cd7))
+
+
+### Code Refactoring
+
+* **cli:** consolidate setup under configure ([f76ef53](https://github.com/Surigoma/CertPouch/commit/f76ef5346557a960a554f2ead45c46f2fda75626))
+
 ## [0.2.1](https://github.com/Surigoma/CertPouch/compare/v0.2.0...v0.2.1) (2026-11-24)
 
 
