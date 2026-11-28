@@ -67,6 +67,7 @@ Linuxリリースには、運用データを保持したままバイナリを配
 
 - [現行実装の全体仕様（英語）](SPEC.md)
 - [詳細仕様書](docs/SPEC/README.md)
+- [Taskでのビルド・テスト・リリース梱包](docs/release-and-acceptance.md#リリース候補)
 - [DNS台帳の記入例](docs/dns-inventory.md#台帳の記入例)
 - [相互TLSの設定](docs/mtls.md)
 - [MITライセンス](LICENSE)

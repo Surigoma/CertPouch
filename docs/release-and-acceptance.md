@@ -2,13 +2,18 @@
 
 ## リリース候補
 
-Go 1.26.11以降を用意し、リリース対象コミットをきれいなチェックアウトで開く。LinuxまたはGit Bashで `bash scripts/package-release.sh` を実行すると、`dist` にLinux amd64・arm64のtar.gzと `SHA256SUMS` が生成される。バイナリと一緒に、同じコミットのREADME、設定例、systemdユニット例、運用文書、ブランド資産を収録する。出力先はスクリプトの第1引数で指定できる。
+Go 1.26.11以降と[Task v3.54.0](https://github.com/go-task/task/releases/tag/v3.54.0)を用意し、リリース対象コミットをきれいなチェックアウトで開く。`task build` は現在の環境向けバイナリを `dist/` に出力する。`BUILD_OUTPUT` で出力先を指定できる。`task test` はGoテスト、`task verify` は `go vet` とraceテストを実行する。
 
-`bash scripts/verify-release.sh dist "$(git rev-parse HEAD)"` は、両アーカイブのSHA-256と、内部バイナリのOS・アーキテクチャ・コミットID・未コミット変更の有無を検証する。Linux amd64では、アーカイブから取り出したamd64版で `server --help` も実行する。GitHub Actionsは添付ジョブでタグを取得し直し、検証済みのコミットと一致した場合に成果物を下書きへ添付する。
+LinuxまたはGit Bashで次を実行すると、`dist/` にLinux amd64・arm64のtar.gzと `SHA256SUMS` を生成して検証する。アーカイブには同じコミットのREADME、設定例、systemdユニット例、運用文書、ブランド資産を収録する。
 
-安定版の梱包には第2引数でタグを渡す。たとえば `bash scripts/package-release.sh dist v0.2.1` は `--version` にそのタグを埋め込む。検証スクリプトの第3引数にも同じ版を渡す。単体バイナリの `update` は、この版をGitHubが返す最新の安定版と比較する。
+```sh
+task release:package RELEASE_VERSION=v0.2.1
+task release:verify RELEASE_VERSION=v0.2.1
+```
 
-GitHub Actionsの `Verify` はmainへのpushとPull Requestで `go vet` とraceテストを実行する。
+`RELEASE_VERSION` は `--version` に埋め込む安定版タグで、省略時は `dev`。出力先を変える場合は両タスクに同じ `OUTPUT_DIR` を渡す。`release:verify` はSHA-256と、内部バイナリのOS・アーキテクチャ・コミットID・未コミット変更の有無を検証する。比較対象は既定で現在の `HEAD` で、`RELEASE_COMMIT` で指定できる。Linux amd64では、展開したバイナリの起動とインストール・アンインストールも確認する。
+
+GitHub Actionsの `Verify` はmainへのpushとPull Requestで `task verify` と `task test:installer` を実行する。`Release` はTaskfileがあるタグで梱包・検証タスクを使い、それ以前のタグを再梱包するときは、そのタグのスクリプトを使う。
 
 1. mainへのpushを受け、Release PleaseがConventional CommitsからバージョンとCHANGELOGを更新するリリースPRを作成する。初回の候補は `v0.1.0`。
 2. リリースPRをマージすると、Release PleaseがタグとGitHub Releaseの下書きを作成する。同じワークフローがタグのコミットを検証・梱包し、2種類のアーカイブと `SHA256SUMS` を下書きに添付する。

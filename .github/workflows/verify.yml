@@ -20,6 +20,7 @@ jobs:
           go-version: '1.26.x'
           check-latest: true
           cache-dependency-path: go.sum
-      - run: go vet ./...
-      - run: go test -race ./...
-      - run: bash scripts/install_test.sh
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+      - run: task verify
+      - run: task test:installer
