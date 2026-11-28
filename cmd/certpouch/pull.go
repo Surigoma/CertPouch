@@ -25,11 +25,8 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to the client YAML configuration")
 	dryRun := flags.Bool("dry-run", false, "preview certificate changes")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *path == "" || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "Usage: certpouch pull [--dry-run] --config PATH")

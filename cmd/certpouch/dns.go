@@ -33,11 +33,8 @@ func runDNSSync(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fixed = &serial
 		return nil
 	})
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *path == "" || flags.NArg() != 0 || (*dryRun == (*stageDir != "")) ||
 		(*stageDir != "" && !filepath.IsAbs(*stageDir)) ||

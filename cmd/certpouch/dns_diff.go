@@ -16,11 +16,8 @@ func runDNSDiff(args []string, stdout, stderr io.Writer) int {
 	candidate := flags.String("candidate", "", "candidate snapshot directory from dns sync")
 	root := flags.String("zone-dir", "", "managed snapshot directory used by NSD")
 	baseline := flags.String("baseline", "", "staged snapshot to compare before NSD initialization")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if flags.NArg() != 0 || !filepath.IsAbs(*candidate) || (*root == "") == (*baseline == "") ||
 		(*root != "" && !filepath.IsAbs(*root)) || (*baseline != "" && !filepath.IsAbs(*baseline)) {

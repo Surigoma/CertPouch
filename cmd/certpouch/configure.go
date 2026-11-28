@@ -25,20 +25,22 @@ func (values *repeatedFlag) Set(value string) error {
 	return nil
 }
 
+const configureHelp = "Usage: certpouch configure dns|server|client [options]\n\nRun certpouch configure <dns|server|client> --help for options.\n"
+
 func runConfigure(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(stderr, "Usage: certpouch configure dns|server|client --help")
+	if len(args) == 1 && isHelp(args[0]) {
+		fmt.Fprint(stdout, configureHelp)
 		return 0
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: certpouch configure dns --help\n       certpouch configure server|client --help")
+		fmt.Fprint(stderr, configureHelp)
 		return 2
 	}
 	if args[0] == "server" || args[0] == "client" {
 		return runInit(args, stdout, stderr)
 	}
 	if args[0] != "dns" {
-		fmt.Fprintln(stderr, "Usage: certpouch configure dns --help")
+		fmt.Fprint(stderr, configureHelp)
 		return 2
 	}
 	flags := flag.NewFlagSet("configure dns", flag.ContinueOnError)
@@ -56,11 +58,8 @@ func runConfigure(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	var nameservers, ranges repeatedFlag
 	flags.Var(&nameservers, "nameserver", "authoritative nameserver; repeat for multiple values")
 	flags.Var(&ranges, "range", "Google Sheets range; repeat for multiple values")
-	if err := flags.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args[1:], stdout, stderr); !ok {
+		return code
 	}
 	if flags.NArg() != 0 {
 		flags.Usage()

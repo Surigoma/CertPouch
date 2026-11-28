@@ -34,11 +34,8 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to the client YAML configuration")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *path == "" || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "Usage: certpouch status --config PATH")

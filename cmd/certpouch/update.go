@@ -16,11 +16,8 @@ func runUpdate(ctx context.Context, args []string, out, diagnostic io.Writer) in
 	flags := flag.NewFlagSet("update", flag.ContinueOnError)
 	flags.SetOutput(diagnostic)
 	check := flags.Bool("check", false, "compare with the latest stable GitHub release without modifying the executable")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, out, diagnostic); !ok {
+		return code
 	}
 	if flags.NArg() != 0 {
 		flags.Usage()

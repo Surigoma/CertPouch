@@ -27,11 +27,8 @@ func runPublicationStatus(args []string, stdout, stderr io.Writer, now time.Time
 	flags.SetOutput(stderr)
 	path := flags.String("config", "", "path to server YAML configuration")
 	threshold := flags.Duration("expires-within", 30*24*time.Hour, "warn if a certificate expires within this duration")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *path == "" || *threshold < 0 || flags.NArg() != 0 {
 		flags.Usage()

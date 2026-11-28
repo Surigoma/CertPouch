@@ -20,11 +20,8 @@ func runPipeline(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	watch := flags.Bool("watch", false, "periodically fetch, apply, and renew")
 	once := flags.Bool("once", false, "fetch, apply, and renew once")
 	check := flags.Bool("check", false, "check local synchronization prerequisites without applying changes")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	modes := 0
 	for _, selected := range []bool{*watch, *once, *check, *candidate != ""} {

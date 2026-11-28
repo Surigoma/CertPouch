@@ -21,11 +21,8 @@ func runRenew(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	flags.SetOutput(stderr)
 	serverPath := flags.String("config", "", "path to server.yaml")
 	preview := flags.Bool("dry-run", false, "show due certificates without opening the issuer key")
-	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args, stdout, stderr); !ok {
+		return code
 	}
 	if *serverPath == "" || flags.NArg() != 0 {
 		flags.Usage()

@@ -22,10 +22,7 @@ import (
 
 func runInit(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || (args[0] != "client" && args[0] != "server") {
-		fmt.Fprintln(stderr, "Usage: certpouch configure server|client --help")
-		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-			return 0
-		}
+		fmt.Fprint(stderr, configureHelp)
 		return 2
 	}
 	role := args[0]
@@ -65,11 +62,8 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 			return initServer(dir, *id, *name, *san, *trust, *issuer, *listen, *cert, *key, *hash, *cache, *csv, *zone, *prefix)
 		}
 	}
-	if err := flags.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, ok := parseFlags(flags, args[1:], stdout, stderr); !ok {
+		return code
 	}
 	if flags.NArg() != 0 || !filepath.IsAbs(*out) || !storage.ValidPublicationName(*id) || !storage.ValidPublicationName(*name) ||
 		!filepath.IsAbs(*trust) || !filepath.IsAbs(*issuer) {
