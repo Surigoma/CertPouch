@@ -281,7 +281,7 @@ distribution:
 		}
 		pipeline := func(args []string) int { return runPipeline(t.Context(), args, &out, &diagnostic) }
 		fetch := func(args []string) int { return runDNSFetch(t.Context(), args, &out, &diagnostic) }
-		runCommand(fetch, []string{"--config", path}, 2, "confirm DNS before updating the cache", &diagnostic)
+		runCommand(fetch, []string{"--config", path}, 2, "confirms NSD before updating the cache", &diagnostic)
 		runCommand(fetch, []string{"--config", path, "--status"}, 0, `"state":"verified"`, &out)
 		cfgBody, err := os.ReadFile(path)
 		if err != nil {

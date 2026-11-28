@@ -6,7 +6,7 @@ Linux上で `example.internal` を管理し、`web01.example.internal` の証明
 
 閲覧専用のサービスアカウントにシートを共有し、JSONを取得ユーザーだけが読めるようにします。キャッシュの親ディレクトリを用意します。シートのB列に `192.0.2`、C列に `10`、D列に `web01`、G列にも `web01` を入れると、`web01.pvt.example.internal` と `web01.example.internal` のAレコードを生成できます。G列は別名です。[台帳の記入例](dns-inventory.md)
 
-新規の設定ディレクトリへ初期設定を作る例です。設定がすでにある場合は、同じ項目を既存の `pipeline.dns` に追加します。
+新規の設定ディレクトリへ初期設定を作る例です。設定がすでにある場合は、同じ項目を既存の `server.yaml` の `inventory` と `dns` に追加します。
 
 ```sh
 certpouch configure dns --out /etc/certpouch \
@@ -24,16 +24,18 @@ certpouch dns sync --config /etc/certpouch/server.yaml --dry-run
 
 ## 2. 台帳を更新してNSDに反映する
 
-初期登録済みで、NSDが管理中の世代を配信していることが前提です。`pipeline.dns.deployment` に以下を設定し、候補ディレクトリを事前に作成します。固定の `zones.serial` と `zones.previous_serials` は外し、管理中の世代からserialを引き継ぎます。
+初期登録済みで、NSDが管理中の世代を配信していることが前提です。`dns.nsd` に以下を設定し、候補ディレクトリを事前に作成します。固定の `dns.zones.serial` と `dns.zones.previous_serials` は外し、管理中の世代からserialを引き継ぎます。
 
 ```yaml
-# server.yaml の pipeline.dns に追加
-deployment:
-  stage_dir: "/var/lib/certpouch/dns-staging"
-  zone_dir: "/var/lib/certpouch/nsd-zones"
-  nsd_config: "/etc/nsd/nsd.conf"
-  dns_address: "127.0.0.1:53"
+# server.yaml の dns に追加
+  nsd:
+    stage_dir: "/var/lib/certpouch/dns-staging"
+    zone_dir: "/var/lib/certpouch/nsd-zones"
+    config_file: "/etc/nsd/nsd.conf"
+    dns_address: "127.0.0.1:53"
 ```
+
+この手動の流れは、`certificates.targets` で名前を固定した構成か、証明書を発行しない構成で使います。台帳上のすべての名前を発行する構成では `pipeline --once` または `--watch` を使います。
 
 1. Sheetsを編集したら `certpouch pipeline --config /etc/certpouch/server.yaml` を実行し、出力された候補パスを控えます。
 2. 下の `candidate` を実際のパスに置き換え、差分を確認します。
@@ -53,9 +55,9 @@ certpouch pipeline --config /etc/certpouch/server.yaml --apply "$candidate"
 
 ## 3. 既存CAで証明書を発行・公開する
 
-[サーバー設定例](../configs/server.example.yaml)を使い、`storage.issuer_certificate` に共通の直接発行者を指定します。トップレベルの `certificates` に `name: web01.example.internal` を登録し、同じ名前を `pipeline.certificates.renewal.profiles` に追加します。通常は証明書名から期待DNS SANが決まります。追加のSANが必要なら、期待する集合を明記します。
+[サーバー設定例](../configs/server.example.yaml)の `certificates` 節を使い、`issuer` に直接発行者の証明書・秘密鍵・中間チェーン、`validity` と `renew_before` を指定します。名前を固定する場合は `targets` に `name: web01.example.internal` を登録します。`targets` を省略すると台帳上のすべての名前が対象です。通常は証明書名から期待DNS SANが決まります。追加のSANが必要なら、期待する集合を明記します。
 
-発行対象は更新プロファイルで指定します。配布許可はクライアント認証と接続元認可で設定します。CA秘密鍵は発行ユーザーだけが読める場所に保ちます。[CA更新の設定](certificate-renewal.md)・[配布認可](dns-inventory.md)
+配布許可はクライアント認証と接続元認可で設定します。CA秘密鍵は発行ユーザーだけが読める場所に保ちます。[CA更新の設定](certificate-renewal.md)・[配布認可](dns-inventory.md)
 
 ```sh
 certpouch cert renew --config /etc/certpouch/server.yaml --dry-run

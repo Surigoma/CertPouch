@@ -25,7 +25,7 @@ func (doc inventoryDocument) load() (dns.Inventory, error) {
 func (doc inventoryDocument) loadWithExpiry(expires *time.Time) (dns.Inventory, error) {
 	const maxInventoryBytes = 16 << 20
 	if (doc.CacheFile == "") == (len(doc.CSVFiles) == 0) {
-		return dns.Inventory{}, fmt.Errorf("configure exactly one of dns_inventory.cache_file or dns_inventory.csv_files")
+		return dns.Inventory{}, fmt.Errorf("configure exactly one of inventory.cache_file or inventory.csv_files")
 	}
 	maxAge, err := doc.freshnessMaxAge()
 	if err != nil {
@@ -33,7 +33,7 @@ func (doc inventoryDocument) loadWithExpiry(expires *time.Time) (dns.Inventory, 
 	}
 	if doc.CacheFile != "" {
 		if !filepath.IsAbs(doc.CacheFile) {
-			return dns.Inventory{}, fmt.Errorf("dns_inventory.cache_file must be absolute")
+			return dns.Inventory{}, fmt.Errorf("inventory.cache_file must be an absolute path")
 		}
 		raw, freshness, err := readInventoryCache(doc.CacheFile, maxInventoryBytes, time.Now, maxAge, maxAge != 0)
 		if err != nil {
@@ -49,7 +49,7 @@ func (doc inventoryDocument) loadWithExpiry(expires *time.Time) (dns.Inventory, 
 	seen := make(map[string]bool)
 	for i, path := range doc.CSVFiles {
 		if !filepath.IsAbs(path) || seen[filepath.Clean(path)] {
-			return dns.Inventory{}, fmt.Errorf("dns_inventory.csv_files[%d] must be a unique absolute path", i)
+			return dns.Inventory{}, fmt.Errorf("inventory.csv_files[%d] must be a unique absolute path", i)
 		}
 		seen[filepath.Clean(path)] = true
 		raw, err := readFile(path, false, remaining)
@@ -68,7 +68,7 @@ func (doc inventoryDocument) freshnessMaxAge() (time.Duration, error) {
 	}
 	maxAge, err := time.ParseDuration(doc.MaxAge)
 	if err != nil || maxAge < time.Second || doc.CacheFile == "" {
-		return 0, fmt.Errorf("dns_inventory.max_age requires a cache and a duration of at least one second")
+		return 0, fmt.Errorf("inventory.max_age requires inventory.cache_file and a duration of at least one second")
 	}
 	return maxAge, nil
 }

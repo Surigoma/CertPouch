@@ -2,24 +2,26 @@
 
 既存のゾーン生成処理がGoogle Sheetsの取得結果として保存する `cache.json` を参照できる。サーバーは起動時にスナップショットを読み込む。認証済みのクライアントには、接続元IPが証明書の論理名に対応するDNS台帳のIPと一致する場合に、その証明書の一覧表示・詳細取得・ダウンロードを許可する。
 
-台帳をCSVで出力している場合は、`cache_file` の代わりに `csv_files: ["/var/lib/dns-inventory/export.csv"]` を指定できる。複数のCSVを指定すると、シートごとにIPv4プレフィックスをリセットして同じ列規則で読む。
+台帳をCSVで出力している場合は、`inventory.cache_file` の代わりに `inventory.csv_files: ["/var/lib/certpouch/export.csv"]` を指定できる。複数のCSVを指定すると、シートごとにIPv4プレフィックスをリセットして同じ列規則で読む。
 
 `certpouch dns fetch` を使い、Google Sheetsからキャッシュを直接更新することもできる。[取得設定と手順](sheets-fetch.md)
 
-サーバー設定に次の項目を加える。台帳モードではクライアントごとの `allowed_ips` と `allowed_certificates` を省く。サーバーの `certificates` には公開対象とSAN・発行者の検証条件を設定する。`configure server` でも台帳モードの設定を生成できる。[初回導入](quickstart.md)
+`server.yaml` に次の項目を加える。台帳モードではクライアントごとの `allowed_ips` を省く。配布する名前は `certificates.targets` で固定するか、省略して台帳上のすべての名前を対象にする。`configure server` でも台帳モードの設定を生成できる。[初回導入](quickstart.md)
 
 ```yaml
-dns_inventory:
-  cache_file: "/var/lib/dns-inventory/cache.json"
+inventory:
+  cache_file: "/var/lib/certpouch/inventory.json"
   fallback_prefix: "192.0.2"
+dns:
   zone: "example.internal"
-clients:
-  - id: "web-server-01"
-    enabled: true
-    token_hash_file: "/etc/certpouch/credentials/web-server-01.sha256"
-    # 任意。通常の接続元に加えて、指定した台帳ホストに取得を許可する。
-    certificate_access_overrides:
-      web.example.internal: ["backup.pvt.example.internal"]
+distribution:
+  clients:
+    - id: "web-server-01"
+      enabled: true
+      token_hash_file: "/etc/certpouch/tokens/web-server-01.sha256"
+      # 任意。通常の接続元に加えて、指定した台帳ホストに取得を許可する。
+      certificate_access_overrides:
+        web.example.internal: ["backup.pvt.example.internal"]
 ```
 
 ## 台帳の記入例
@@ -49,8 +51,8 @@ x,,12,retired,,,old
 
 既定では、台帳に同名のレコードがない証明書へのアクセスは拒否する。例外設定のホストが台帳にない場合やファイルが不正な場合は起動に失敗する。
 
-`server.inventory_refresh: "1m"` のように設定すると、起動後も台帳を定期的に読み直してIPによる取得許可を入れ替える。読み込みや例外設定の再解決に失敗した場合は、台帳モードの認証を一時停止し、正常な台帳を読めた時点で再開する。公開ストアの更新とは別に処理するため、新しい証明書が不正でも古いIPへの許可は取り消せる。トークン、適用する設定ファイル、例外ホスト名を変更した場合はサーバーを再起動する。
+配布サーバーは `distribution.refresh_interval`（既定5秒）ごとに台帳を読み直し、IPによる取得許可を入れ替える。読み込みや例外設定の再解決に失敗した場合は、台帳モードの認証を一時停止し、正常な台帳を読めた時点で再開する。公開ストアの更新とは別に処理するため、新しい証明書が不正でも古いIPへの許可は取り消せる。トークン、適用する設定ファイル、例外ホスト名を変更した場合はサーバーを再起動する。
 
-`inventory_refresh` を省略すると、台帳変更の反映にはサーバー再起動が必要。取得が途絶えたキャッシュを拒否したい場合は、`dns fetch` でキャッシュを管理し、配布サーバーの `dns_inventory.max_age` を設定する。たとえば15分間隔で取得するなら `max_age: "45m"` にすると、取得の遅延に余裕を持たせられる。
+取得が途絶えたキャッシュを拒否したい場合は、`dns fetch` または `pipeline` でキャッシュを管理し、`inventory.max_age` を設定する。たとえば15分間隔で取得するなら `max_age: "45m"` にすると、取得の遅延に余裕を持たせられる。
 
 この設定では、キャッシュと最終成功記録のSHA-256が一致し、記録の時刻が現在から `max_age` 未満の場合だけ認可に使う。期限に達した時点で、次の台帳読み込みを待たずに新規リクエストを拒否する。正常な取得後、次の定期読み込みで認可を再開する。CSVと旧Pythonキャッシュでは、`max_age` を省いて既存の方式を使える。

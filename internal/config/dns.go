@@ -22,7 +22,7 @@ func LoadDNSDeployment(path string) (DNSDeployment, error) {
 		return DNSDeployment{}, err
 	}
 	if doc.Deployment == nil {
-		return DNSDeployment{}, fmt.Errorf("DNS deployment configuration is required")
+		return DNSDeployment{}, fmt.Errorf("dns.nsd configuration is required")
 	}
 	return *doc.Deployment, nil
 }
@@ -58,7 +58,7 @@ func readDNSDocument(path string) (inventoryDocument, dnsZoneDocument, error) {
 		return inventoryDocument{}, dnsZoneDocument{}, err
 	}
 	if doc.DNSInventory == nil {
-		return inventoryDocument{}, dnsZoneDocument{}, fmt.Errorf("server configuration requires dns_inventory")
+		return inventoryDocument{}, dnsZoneDocument{}, fmt.Errorf("DNS generation requires inventory.cache_file or inventory.csv_files")
 	}
 	return *doc.DNSInventory, doc.Zones, nil
 }
@@ -69,13 +69,13 @@ func ValidateDNSConfig(path string) error {
 		return err
 	}
 	if zones.Serial == nil && len(zones.PreviousSerials) == 0 {
-		return fmt.Errorf("DNS configuration requires zones.serial or zones.previous_serials")
+		return fmt.Errorf("DNS generation requires dns.zones.serial or dns.zones.previous_serials, or a serial source such as --serial-from")
 	}
 	if (inventory.CacheFile == "") == (len(inventory.CSVFiles) == 0) {
-		return fmt.Errorf("configure exactly one of dns_inventory.cache_file or dns_inventory.csv_files")
+		return fmt.Errorf("configure exactly one of inventory.cache_file or inventory.csv_files")
 	}
 	if inventory.CacheFile != "" && !filepath.IsAbs(inventory.CacheFile) {
-		return fmt.Errorf("dns_inventory.cache_file must be absolute")
+		return fmt.Errorf("inventory.cache_file must be an absolute path")
 	}
 	if _, err := inventory.freshnessMaxAge(); err != nil {
 		return err
@@ -108,11 +108,11 @@ func loadDNSZones(path, serialDirectory, baselineDirectory string, fetched *dns.
 		return nil, err
 	}
 	if startup && zones.ReverseZones == nil {
-		return nil, fmt.Errorf("startup zone preparation requires an explicit reverse_zones list")
+		return nil, fmt.Errorf("startup zone preparation requires an explicit dns.zones.reverse_zones list")
 	}
 	if serialDirectory != "" || baselineDirectory != "" {
 		if zones.Serial != nil || len(zones.PreviousSerials) != 0 {
-			return nil, fmt.Errorf("a serial source cannot be combined with zones.serial or zones.previous_serials")
+			return nil, fmt.Errorf("a serial source cannot be combined with dns.zones.serial or dns.zones.previous_serials; remove them once NSD serves a managed generation")
 		}
 		if baselineDirectory != "" {
 			zones.PreviousSerials, err = dns.ReadCandidateSerials(baselineDirectory)
@@ -124,7 +124,7 @@ func loadDNSZones(path, serialDirectory, baselineDirectory string, fetched *dns.
 		}
 	}
 	if !startup && zones.Serial == nil && len(zones.PreviousSerials) == 0 {
-		return nil, fmt.Errorf("DNS configuration requires zones.serial or zones.previous_serials")
+		return nil, fmt.Errorf("DNS generation requires dns.zones.serial or dns.zones.previous_serials, or a serial source such as --serial-from")
 	}
 	var inventory dns.Inventory
 	if fetched != nil {

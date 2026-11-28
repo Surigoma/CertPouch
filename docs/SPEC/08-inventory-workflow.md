@@ -12,7 +12,7 @@ IPレンジの追加・変更は、管理者がレンジ設定を編集してCer
 
 ## 同期順序
 
-目標の設定形式では、`inventory.sheets.ranges` に同じスプレッドシート内のA1形式の範囲を1件以上指定する。別タブや同じタブ内の別範囲をまとめて読み取り、一つの台帳として検証する。現行実装で複数指定する場合は、`pipeline.dns.sheets.ranges` を使う。
+`inventory.sheets.ranges` に同じスプレッドシート内のA1形式の範囲を1件以上指定する。別タブや同じタブ内の別範囲をまとめて読み取り、一つの台帳として検証する。
 
 ```yaml
 inventory:
@@ -78,4 +78,4 @@ Webhookは、将来同じ同期処理を早めに起動する入口とする。�
 
 ## 現行実装との差
 
-`pipeline --watch` で定期同期できる。[新形式の設定](../../configs/workflow-server.example.yaml)では専用NSD includeを使った起動時のゾーン準備と、台帳ベースの発行を設定できる。配布対象からの除外は配布サーバーの定期読み直しで反映する。現在の手順は[DNS同期](../dns-sync.md)と[証明書更新](../certificate-renewal.md)を参照する。
+`pipeline --watch` で定期同期できる。[設定例](../../configs/server.example.yaml)では専用NSD includeを使った起動時のゾーン準備と、台帳ベースの発行を設定できる。配布対象からの除外は配布サーバーの定期読み直しで反映する。現在の手順は[DNS同期](../dns-sync.md)と[証明書更新](../certificate-renewal.md)を参照する。

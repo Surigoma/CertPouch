@@ -162,29 +162,30 @@ func initServer(dir, id, name, san, trust, issuer, listen, cert, key, hashPath, 
 	if csv != "" {
 		inventory = fmt.Sprintf("csv_files: [%q]", csv)
 	}
-	body := fmt.Sprintf(`server:
-  listen: %q
-  publication_refresh: "1m"
-  inventory_refresh: "1m"
-  tls:
-    certificate: %q
-    private_key: %q
-storage:
-  certificate_dir: %q
-  trust_ca_file: %q
-dns_inventory:
+	body := fmt.Sprintf(`inventory:
   %s
-  zone: %q
   fallback_prefix: %q
+dns:
+  zone: %q
 certificates:
-  - name: %q
-    expected_dns_sans: [%q]
-    issuer_certificate: %q
-clients:
-  - id: %q
-    enabled: true
-    token_hash_file: %q
-`, listen, cert, key, filepath.Join(dir, "publications"), trust, inventory, zone, prefix, name, san, issuer, id, filepath.Join(dir, "client.token.sha256"))
+  store_dir: %q
+  trust_ca_file: %q
+  issuer:
+    certificate_file: %q
+  targets:
+    - name: %q
+      expected_dns_sans: [%q]
+distribution:
+  listen: %q
+  refresh_interval: "1m"
+  tls:
+    certificate_file: %q
+    private_key_file: %q
+  clients:
+    - id: %q
+      enabled: true
+      token_hash_file: %q
+`, inventory, prefix, zone, filepath.Join(dir, "publications"), trust, issuer, name, san, listen, cert, key, id, filepath.Join(dir, "client.token.sha256"))
 	return writeInit(dir, "server.yaml", "publications", body, map[string]string{
 		"client.token.sha256": value + "\n",
 	}, func(path string) error {

@@ -14,45 +14,24 @@ import (
 	"github.com/Surigoma/CertPouch/internal/pki"
 )
 
+// Renewal is derived from the certificates section of server.yaml.
 type Renewal struct {
-	FromInventory   bool             `yaml:"from_inventory"`
-	Validity        string           `yaml:"validity"`
-	RenewBefore     string           `yaml:"renew_before"`
-	CertificateFile string           `yaml:"issuer_certificate"`
-	KeyFile         string           `yaml:"issuer_private_key"`
-	ChainFile       string           `yaml:"issuer_chain"`
-	PassphraseFile  string           `yaml:"issuer_passphrase_file"`
-	Profiles        []RenewalProfile `yaml:"profiles"`
+	FromInventory   bool
+	Validity        string
+	RenewBefore     string
+	CertificateFile string
+	KeyFile         string
+	ChainFile       string
+	PassphraseFile  string
+	Profiles        []RenewalProfile
 }
 
 type RenewalProfile struct {
-	Name            string        `yaml:"name"`
-	ValidityText    string        `yaml:"validity"`
-	RenewBeforeText string        `yaml:"renew_before"`
-	Validity        time.Duration `yaml:"-"`
-	RenewBefore     time.Duration `yaml:"-"`
-}
-
-func LoadRenewal(path string) (Renewal, error) {
-	var cfg Renewal
-	raw, err := readFile(path, false, 1<<20)
-	if err != nil {
-		return cfg, fmt.Errorf("read renewal configuration: %w", err)
-	}
-	if doc, unifiedErr := decodeServer(raw); unifiedErr == nil && (len(doc.Renewal.Profiles) != 0 || doc.Renewal.FromInventory) {
-		var names []string
-		if doc.Renewal.FromInventory {
-			inventory, err := doc.loadIssuanceInventory()
-			if err != nil {
-				return cfg, err
-			}
-			names = inventory.Names()
-		}
-		return renewalForNames(doc.Renewal, names)
-	} else if err := decodeYAML(raw, &cfg); err != nil {
-		return cfg, err
-	}
-	return validateRenewal(cfg)
+	Name            string
+	ValidityText    string
+	RenewBeforeText string
+	Validity        time.Duration
+	RenewBefore     time.Duration
 }
 
 // LoadRenewalInputs derives authorization policy and issuance profiles from
@@ -77,9 +56,6 @@ func LoadRenewalInputs(path string) (Server, Renewal, error) {
 
 func renewalForNames(cfg Renewal, names []string) (Renewal, error) {
 	if cfg.FromInventory {
-		if len(cfg.Profiles) != 0 {
-			return cfg, fmt.Errorf("inventory renewal cannot include explicit profiles")
-		}
 		for _, name := range names {
 			cfg.Profiles = append(cfg.Profiles, RenewalProfile{Name: name, ValidityText: cfg.Validity, RenewBeforeText: cfg.RenewBefore})
 		}
@@ -88,16 +64,27 @@ func renewalForNames(cfg Renewal, names []string) (Renewal, error) {
 }
 
 func validateRenewal(cfg Renewal) (Renewal, error) {
-	if !filepath.IsAbs(cfg.CertificateFile) || !filepath.IsAbs(cfg.KeyFile) ||
-		(cfg.ChainFile != "" && !filepath.IsAbs(cfg.ChainFile)) ||
-		(cfg.PassphraseFile != "" && !filepath.IsAbs(cfg.PassphraseFile)) || (len(cfg.Profiles) == 0 && !cfg.FromInventory) {
-		return cfg, fmt.Errorf("renewal requires absolute issuer paths and at least one certificate profile")
+	for _, field := range []struct {
+		key, path string
+		required  bool
+	}{
+		{"certificates.issuer.certificate_file", cfg.CertificateFile, true},
+		{"certificates.issuer.private_key_file", cfg.KeyFile, true},
+		{"certificates.issuer.chain_file", cfg.ChainFile, false},
+		{"certificates.issuer.passphrase_file", cfg.PassphraseFile, false},
+	} {
+		if (field.required || field.path != "") && !filepath.IsAbs(field.path) {
+			return cfg, fmt.Errorf("certificate issuance requires %s as an absolute path", field.key)
+		}
+	}
+	if len(cfg.Profiles) == 0 && !cfg.FromInventory {
+		return cfg, fmt.Errorf("certificate issuance has no targets: list certificates.targets or omit them to issue every inventory name")
 	}
 	if cfg.FromInventory && len(cfg.Profiles) == 0 {
 		validity, validityErr := time.ParseDuration(cfg.Validity)
 		before, beforeErr := time.ParseDuration(cfg.RenewBefore)
 		if validityErr != nil || beforeErr != nil || validity%time.Second != 0 || before <= 0 || before >= validity {
-			return cfg, fmt.Errorf("invalid inventory renewal validity or renewal threshold")
+			return cfg, fmt.Errorf("certificates.validity and certificates.renew_before must be durations with renew_before shorter than validity")
 		}
 	}
 	seen := make(map[string]bool, len(cfg.Profiles))
@@ -108,7 +95,7 @@ func validateRenewal(cfg Renewal) (Renewal, error) {
 		p.RenewBefore, beforeErr = time.ParseDuration(p.RenewBeforeText)
 		if p.Name == "" || seen[p.Name] || validityErr != nil || beforeErr != nil ||
 			p.Validity%time.Second != 0 || p.RenewBefore <= 0 || p.RenewBefore >= p.Validity {
-			return cfg, fmt.Errorf("invalid or duplicate renewal profile at index %d", i)
+			return cfg, fmt.Errorf("certificate %q needs a unique name and validity/renew_before durations with renew_before shorter than validity (certificates.validity or certificates.targets[].validity)", p.Name)
 		}
 		seen[p.Name] = true
 	}

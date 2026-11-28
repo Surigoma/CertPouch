@@ -74,7 +74,7 @@ func TestPackagedServerSystemdUnit(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	config := write("server.yaml", []byte(fmt.Sprintf("server:\n  listen: %q\n  tls: {certificate: %q, private_key: %q}\nstorage: {certificate_dir: %q, trust_ca_file: %q}\n",
+	config := write("server.yaml", []byte(fmt.Sprintf("distribution:\n  listen: %q\n  tls: {certificate_file: %q, private_key_file: %q}\ncertificates: {store_dir: %q, trust_ca_file: %q}\n",
 		addr, certFile, keyFile, store, caFile)), 0600)
 
 	executable, err := os.Executable()

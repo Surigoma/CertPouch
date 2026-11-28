@@ -36,7 +36,7 @@ sudo install -m 0600 -o root -g root /path/to/downloaded-key.json /etc/certpouch
 sudo install -d -m 0750 /var/lib/certpouch
 ```
 
-[自動運用の設定例](../configs/workflow-server.example.yaml)を `/etc/certpouch/server.yaml` に置きます。まず `inventory` と `dns` を使い、`certificates` と `distribution` は次の手順で追加します。Sheets関連は以下のように編集します。サンプルにある他のタブは、実際に使うときだけ指定してください。
+[自動運用の設定例](../configs/server.example.yaml)を `/etc/certpouch/server.yaml` に置きます。まず `inventory` と `dns` を使い、`certificates` と `distribution` は次の手順で追加します。Sheets関連は以下のように編集します。サンプルにある他のタブは、実際に使うときだけ指定してください。
 
 ```yaml
 inventory:
@@ -76,7 +76,7 @@ CertPouchには、**配布APIへのHTTPS接続を確認する証明書**と、**
 
 たとえば配布APIが `cert-server.example.internal`、利用サービスが `portal.example.internal` なら、前者はクライアントの接続先、後者は取得する証明書名です。双方を同じCAが署名している構成なら、信頼用の公開CAバンドルを共用できます。**CA秘密鍵は同期・発行を行うサーバー側だけ**に置きます。手順3のSheets用JSON鍵は、Google Sheetsにアクセスするための資格情報です。
 
-1. 試験用の値を実運用の値に置き換え、プレビュー用の固定 `serial` を外します。設定例の `dns.nsd`、`certificates`、`distribution` を埋め、[専用NSD includeとディレクトリ](dns-sync.md)を準備します。同じキャッシュを使う場合は、同期ユーザーが所有し、配布ユーザーが読める権限を設定します。
+1. 試験用の値を実運用の値に置き換え、プレビュー用の固定 `serial` を外します。設定例の `dns.nsd`、`certificates`、`distribution` を埋め、[専用NSD includeとディレクトリ](dns-sync.md)を準備します。同じキャッシュを使う場合は、同期ユーザーが所有し、配布ユーザーが読める権限を設定します。`certificates.targets` を書かずに `certificates.issuer` を設定すると台帳上のすべての名前が発行対象になり、NSD反映前のキャッシュ更新を防ぐため `dns fetch` は使えなくなります。以降の取得は次の `pipeline` で行います。
 2. 同期サービスを動かすユーザーで `certpouch pipeline --check --config /etc/certpouch/server.yaml` を実行します。これはローカルの前提確認です。次に `certpouch pipeline --once --config /etc/certpouch/server.yaml` を実行して、NSD反映と証明書発行を確認します。
 3. 初回同期が成功したら、[同期用unit](../configs/systemd/certpouch-pipeline.service)と[配布用unit](../configs/systemd/certpouch-server.service)で常駐させます。受け取り側は [client.yamlの例](../configs/client.example.yaml)を設定し、`certpouch pull --dry-run --config /etc/certpouch/client.yaml` で取得予定を確認します。
 
@@ -145,7 +145,7 @@ sudo chown certpouch:certpouch /etc/certpouch/server-init/client.token.sha256 \
   /etc/certpouch/server-init/publications
 ```
 
-サーバー用のTLS秘密鍵、CA、台帳は `init` がコピーしないため、参照先の権限も確認します。
+サーバー用のTLS秘密鍵、CA、台帳は `configure server` がコピーしないため、参照先の権限も確認します。
 
 ## 2. 手動でクライアント資格情報を作る
 
@@ -163,17 +163,42 @@ sha256sum "$credentials_dir/client.token" | awk '{print $1}' > "$credentials_dir
 
 ## 3. 配布サーバーを設定して起動する
 
-[サーバー設定例](../configs/server.example.yaml)を `/etc/certpouch/server.yaml` にコピーし、次の値を設定します。
+配布だけを行うサーバーでは、次の4節だけの `/etc/certpouch/server.yaml` を作ります。全項目は[サーバー設定例](../configs/server.example.yaml)を参照してください。
+
+```yaml
+inventory:
+  cache_file: "/var/lib/certpouch/inventory.json"
+  fallback_prefix: "192.0.2"
+dns:
+  zone: "example.internal"
+certificates:
+  store_dir: "/var/lib/certpouch/certificates"
+  trust_ca_file: "/etc/certpouch/issuers.pem"
+  issuer:
+    certificate_file: "/etc/certpouch/intermediate.crt"
+  targets:
+    - name: "web.example.internal"
+distribution:
+  listen: "192.0.2.20:8443"
+  tls:
+    certificate_file: "/etc/certpouch/tls/server.crt"
+    private_key_file: "/etc/certpouch/tls/server.key"
+  clients:
+    - id: "web-server-01"
+      enabled: true
+      token_hash_file: "/etc/certpouch/credentials/web-server-01.sha256"
+```
 
 | YAMLキー | 設定する値 |
 | --- | --- |
-| `server.listen` | 取得ホストから到達できるサーバー側IPとポート。設定例の `127.0.0.1:8443` は同じホストからの接続用。別ホストから接続する場合は内部IPなどに変更 |
-| `server.tls.certificate`, `server.tls.private_key` | 配布サーバー自身のHTTPS証明書と秘密鍵の絶対パス |
-| `storage.certificate_dir`, `storage.trust_ca_file` | 公開世代の保存先と、配布対象を検証するCAバンドル |
-| `dns_inventory.cache_file` | 台帳のJSONキャッシュへの絶対パス。CSVの場合は代わりに `csv_files: ["/path/to/inventory.csv"]` を設定 |
-| `dns_inventory.zone`, `dns_inventory.fallback_prefix` | 台帳上の名前に補うゾーン名と、台帳でプレフィックスが指定される前に使うIPv4プレフィックス。[台帳の記入例](dns-inventory.md#台帳の記入例) |
-| `certificates[0].name`, `expected_dns_sans`, `issuer_certificate` | 台帳の完全修飾名（例 `web.example.internal`）、リーフに期待するDNS SAN、直接発行者の証明書 |
-| `clients[0].id`, `enabled`, `token_hash_file` | クライアントID（例 `web-server-01`）、`true`、手順2で置いたハッシュの絶対パス |
+| `inventory.cache_file` | 台帳のJSONキャッシュへの絶対パス。CSVの場合は代わりに `csv_files: ["/path/to/inventory.csv"]` を設定 |
+| `inventory.fallback_prefix`, `dns.zone` | 台帳でプレフィックスが指定される前に使うIPv4プレフィックスと、台帳上の名前に補うゾーン名。[台帳の記入例](dns-inventory.md#台帳の記入例) |
+| `certificates.store_dir`, `certificates.trust_ca_file` | 公開世代の保存先と、配布対象を検証するCAバンドル |
+| `certificates.issuer.certificate_file` | 配布対象のリーフに直接署名した発行者の証明書。CA秘密鍵は指定しない |
+| `certificates.targets[0].name` | 台帳の完全修飾名（例 `web.example.internal`）。SANが名前と異なる場合だけ `expected_dns_sans` を追加 |
+| `distribution.listen` | 取得ホストから到達できるサーバー側IPとポート |
+| `distribution.tls.certificate_file`, `private_key_file` | 配布サーバー自身のHTTPS証明書と秘密鍵の絶対パス |
+| `distribution.clients[0].id`, `enabled`, `token_hash_file` | クライアントID（例 `web-server-01`）、`true`、手順2で置いたハッシュの絶対パス |
 
 台帳モードでは、配布サーバーから見た取得ホストの接続元IPを、証明書の論理名に対応する台帳のIPと照合します。別ホストから取得させる場合は、そのホスト名を台帳に登録し、`certificate_access_overrides` に追加します。[例外の設定](dns-inventory.md)
 
@@ -237,7 +262,7 @@ statusの対象証明書が `installed` になり、`last_successful_sync` が�
 
 ## 普段使うコマンド
 
-`init` を使った場合のパスを示します。手動で設定した場合は、自分のYAMLのパスに置き換えてください。
+`configure server` と `configure client` を使った場合のパスを示します。手動で設定した場合は、自分のYAMLのパスに置き換えてください。
 
 | 実行する場所・目的 | コマンド |
 | --- | --- |

@@ -37,7 +37,7 @@ func loadSheetsFetchDocument(path string) (serverDocument, error) {
 		return serverDocument{}, err
 	}
 	if doc.DNSInventory == nil || !filepath.IsAbs(doc.DNSInventory.CacheFile) || len(doc.DNSInventory.CSVFiles) != 0 {
-		return serverDocument{}, fmt.Errorf("Sheets fetch requires an absolute cache_file and does not accept csv_files")
+		return serverDocument{}, fmt.Errorf("Sheets fetch requires an absolute inventory.cache_file and does not accept inventory.csv_files")
 	}
 	return doc, nil
 }
@@ -48,11 +48,11 @@ func LoadSheetsFetch(path string) (SheetsFetch, error) {
 		return SheetsFetch{}, err
 	}
 	if !filepath.IsAbs(doc.Sheets.ServiceAccountFile) {
-		return SheetsFetch{}, fmt.Errorf("Sheets fetch requires an absolute service account path")
+		return SheetsFetch{}, fmt.Errorf("Sheets fetch requires inventory.sheets.credentials_file as an absolute path")
 	}
 	secret, err := readFile(doc.Sheets.ServiceAccountFile, true, 64<<10)
 	if err != nil {
-		return SheetsFetch{}, fmt.Errorf("read Sheets service account file: %w", err)
+		return SheetsFetch{}, fmt.Errorf("read inventory.sheets.credentials_file %s: %w", doc.Sheets.ServiceAccountFile, err)
 	}
 	defer clear(secret)
 	credentials, err := sheets.ParseCredentials(secret)

@@ -1,6 +1,6 @@
 # サーバーへの証明書登録
 
-Linux上で、既存CAが発行したリーフ証明書と対応する秘密鍵を `cert publish` で登録する。対象の論理名と検証するSAN・発行者を、事前に[サーバー設定](../configs/server.example.yaml)の `certificates` に設定する。`configure server` を使った場合は、以下の `--config` とunitの `ExecStart` に生成した `server.yaml` のパスを指定する。[初回導入](quickstart.md)
+Linux上で、既存CAが発行したリーフ証明書と対応する秘密鍵を `cert publish` で登録する。対象の論理名と検証するSAN・発行者を、事前に[サーバー設定](../configs/server.example.yaml)の `certificates.targets` に設定する。CA秘密鍵を持たない配布サーバーでは `certificates.issuer.private_key_file` を省略する。`configure server` を使った場合は、以下の `--config` とunitの `ExecStart` に生成した `server.yaml` のパスを指定する。[初回導入](quickstart.md)
 
 ```sh
 certpouch cert publish --config /etc/certpouch/server.yaml \
@@ -14,7 +14,7 @@ certpouch cert publish --config /etc/certpouch/server.yaml \
 
 登録処理は証明書と鍵、SAN、発行者、有効期限、チェーンを検証してから新しい世代を書き込み、`current` を切り替える。検証に失敗した場合は現行世代を維持する。成功時は証明書名と新しい世代IDを表示する。
 
-`server.publication_refresh` を設定すると、配布サーバーがストアを定期的に読み直す。例の `1m` では1分ごとに確認し、検証が通った在庫へ切り替える。失敗した場合は最後に検証済みの在庫を維持し、エラーをログに記録する。次にストアの検証が成功するまで `/api/v1/health` は503を返す。定期確認を省略すると起動時のみストアを確認するため、登録後にサーバーを再起動する。アクセス制御、信頼CA、サーバー自身のTLS鍵など、設定を変えた場合は再起動が必要。
+配布サーバーは `distribution.refresh_interval`（既定5秒）ごとにストアを読み直し、検証が通った在庫へ切り替える。失敗した場合は最後に検証済みの在庫を維持し、エラーをログに記録する。次にストアの検証が成功するまで `/api/v1/health` は503を返す。アクセス制御、信頼CA、サーバー自身のTLS鍵など、設定を変えた場合は再起動が必要。
 
 古い世代は保存される。登録中の異常終了で `.publish-lock` が残った場合は、登録処理が終了していることを確認し、`current` の参照先と登録済みファイルを確認してからロックを取り除く。
 

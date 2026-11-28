@@ -61,7 +61,7 @@ func runPipeline(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return runDNSApply(ctx, apply, stdout, stderr)
 	}
 	if !filepath.IsAbs(deployment.StageDir) {
-		fmt.Fprintln(stderr, "pipeline.dns.deployment.stage_dir must be absolute")
+		fmt.Fprintln(stderr, "dns.nsd.stage_dir must be an absolute path")
 		return 2
 	}
 	if code := runDNSFetch(ctx, []string{"--config", *path}, stderr, stderr); code != 0 {
@@ -79,18 +79,22 @@ func checkPipeline(ctx context.Context, path string, deployment config.DNSDeploy
 	if err != nil {
 		return err
 	}
-	for _, dir := range []string{deployment.StageDir, deployment.ZoneDir, filepath.Dir(fetch.CacheFile)} {
-		info, err := os.Stat(dir)
-		if !filepath.IsAbs(dir) || err != nil || !info.IsDir() {
-			return fmt.Errorf("expected an existing absolute directory: %s", dir)
+	for _, field := range []struct{ key, dir string }{
+		{"dns.nsd.stage_dir", deployment.StageDir},
+		{"dns.nsd.zone_dir", deployment.ZoneDir},
+		{"the parent of inventory.cache_file", filepath.Dir(fetch.CacheFile)},
+	} {
+		info, err := os.Stat(field.dir)
+		if !filepath.IsAbs(field.dir) || err != nil || !info.IsDir() {
+			return fmt.Errorf("%s must be an existing absolute directory: %q", field.key, field.dir)
 		}
 	}
 	if !filepath.IsAbs(deployment.NSDConfig) {
-		return fmt.Errorf("NSD configuration path must be absolute")
+		return fmt.Errorf("dns.nsd.config_file must be an absolute path")
 	}
 	if deployment.NSDInclude != "" {
 		if !filepath.IsAbs(deployment.NSDInclude) || filepath.Clean(deployment.NSDInclude) == filepath.Clean(deployment.NSDConfig) {
-			return fmt.Errorf("NSD include must be a dedicated absolute path")
+			return fmt.Errorf("dns.nsd.include_file must be an absolute path different from dns.nsd.config_file")
 		}
 		if _, err := readManagedNSDInclude(deployment.NSDInclude); err != nil {
 			return err

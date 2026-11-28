@@ -50,7 +50,7 @@ func runDNSFetch(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return 2
 	}
 	if cfg.ConfirmDNSBeforeCache {
-		fmt.Fprintln(stderr, "inventory issuance requires pipeline --watch to confirm DNS before updating the cache")
+		fmt.Fprintln(stderr, "dns fetch is disabled because certificates.issuer issues a certificate for every inventory name; use certpouch pipeline --once or --watch, which confirms NSD before updating the cache")
 		return 2
 	}
 	hostCount := 0

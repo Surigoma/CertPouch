@@ -21,10 +21,23 @@ func watchPipeline(ctx context.Context, path string, deployment config.DNSDeploy
 	if deployment.PollInterval != "" {
 		interval, err = time.ParseDuration(deployment.PollInterval)
 	}
-	if runtime.GOOS != "linux" || err != nil || interval < time.Second ||
-		!filepath.IsAbs(deployment.StageDir) || !filepath.IsAbs(deployment.ZoneDir) || !filepath.IsAbs(deployment.NSDConfig) {
-		fmt.Fprintln(diagnostic, "watch requires Linux, a valid poll interval, and absolute deployment paths")
+	if runtime.GOOS != "linux" {
+		fmt.Fprintln(diagnostic, "pipeline --watch and --once require Linux")
 		return 2
+	}
+	if err != nil || interval < time.Second {
+		fmt.Fprintln(diagnostic, "inventory.poll_interval must be a duration of at least one second")
+		return 2
+	}
+	for _, field := range []struct{ key, path string }{
+		{"dns.nsd.stage_dir", deployment.StageDir},
+		{"dns.nsd.zone_dir", deployment.ZoneDir},
+		{"dns.nsd.config_file", deployment.NSDConfig},
+	} {
+		if !filepath.IsAbs(field.path) {
+			fmt.Fprintf(diagnostic, "%s must be an absolute path\n", field.key)
+			return 2
+		}
 	}
 	if _, err := dns.ReadManagedSerials(deployment.ZoneDir); err != nil && deployment.NSDInclude == "" {
 		fmt.Fprintf(diagnostic, "read initial managed DNS zones: %v\n", err)

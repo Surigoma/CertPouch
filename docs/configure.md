@@ -2,13 +2,15 @@
 
 初回接続から日常のDNS更新、証明書の発行・配置までを試す場合は、[利用シーン別の操作例](user-flows.md)を参照してください。
 
-自動運用では[新形式のサーバー設定例](../configs/workflow-server.example.yaml)を `server.yaml` として使います。`inventory` はSheets取得、`dns` は管理ゾーンとNSD、`certificates` は共通の発行方針、`distribution` はHTTPS配布と取得制限です。クライアント側は従来どおり [client.yaml の例](../configs/client.example.yaml)を使います。
+サーバー側の設定は[サーバー設定例](../configs/server.example.yaml)の形式の `server.yaml` 1枚です。`inventory` は台帳の入力元、`dns` は管理ゾーンとNSD、`certificates` は既存CAと発行・配布する名前、`distribution` はHTTPS配布と取得制限です。`configure dns` と `configure server` もこの形式で出力します。クライアント側は [client.yaml の例](../configs/client.example.yaml)を使います。項目の一覧は[設定仕様](SPEC/02-configuration.md)を参照してください。
+
+CertPouch v1の `server`、`storage`、`dns_inventory`、`google_sheets`、`zones`、`renewal`、`pipeline`、`clients` を使った設定は読み込めません。起動時のエラーに表示される移行先のキーへ書き換えてください。
 
 `certpouch configure` は設定を新規ディレクトリへ生成する。既存ディレクトリやファイルは上書きしない。生成したYAMLは厳密デコーダーと各機能の検証処理を通し、失敗時は作成途中のディレクトリを削除する。
 
 ## DNSとSheetsの設定
 
-最初は `server.yaml` の `inventory` と `dns` だけで候補を確認できます。[全体の設定例](../configs/workflow-server.example.yaml)から、使う段階に合わせて節を追加してください。
+最初は `server.yaml` の `inventory` と `dns` だけで候補を確認できます。[全体の設定例](../configs/server.example.yaml)から、使う段階に合わせて節を追加してください。
 
 | 段階 | 編集する節 | 入力する内容 |
 | --- | --- | --- |
@@ -59,9 +61,9 @@ certpouch configure dns \
 
 ## 配布サーバーとクライアント
 
-通常の証明書では `certificates[].name` にDNS名を書くだけで、その名前が期待DNS SANになります。共通の直接発行者はサーバーの `storage.issuer_certificate`、クライアントの `validation.issuer_certificate` に設定します。別名・IP SAN・別の発行者が必要な証明書だけ、個別に設定してください。[設定例](../configs/server.example.yaml)
+名前を固定して配布する場合、サーバーの `certificates.targets[].name` とクライアントの `certificates[].name` にDNS名を書くだけで、その名前が期待DNS SANになります。共通の直接発行者はサーバーの `certificates.issuer.certificate_file`、クライアントの `validation.issuer_certificate` に設定します。別名・IP SAN・別の発行者が必要な証明書だけ、個別に設定してください。`certificates.targets` を省略すると台帳上のすべての名前が対象です。[設定例](../configs/server.example.yaml)
 
-既存の初期化機能も同じ入口から利用できる。
+配布サーバーと取得ホスト1台分の初期設定も同じ入口から作成できる。`configure server` は `certificates.targets` に1件の名前を持つ `server.yaml` を出力する。
 
 ```sh
 certpouch configure server --help

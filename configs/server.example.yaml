@@ -1,71 +1,80 @@
-# HTTPS配布を使う段階で設定する。DNS候補の確認だけなら server と storage は省略可。
-server:
-  listen: "127.0.0.1:8443"
-  publication_refresh: "1m"
-  inventory_refresh: "1m"
+# CertPouch v2 server.yaml. Every server command reads this one file:
+# server, pipeline, dns fetch|sync|diff|apply and cert publish|renew|status.
+# Add sections as you need them; create the parent directories first.
+
+# 1. Inventory: where host names and IPv4 addresses come from.
+inventory:
+  cache_file: "/var/lib/certpouch/inventory.json"
+  # Instead of cache_file, per-sheet CSV exports can be used (no Sheets fetch):
+  # csv_files: ["/var/lib/certpouch/servers.csv"]
+  fallback_prefix: "192.0.2"
+  poll_interval: "3m"
+  max_age: "30m"
+  sheets:
+    spreadsheet_id: "REPLACE_WITH_SPREADSHEET_ID"
+    ranges:
+      - "'Servers'!A2:G256"
+      - "'Containers'!A2:G128"
+    credentials_file: "/etc/certpouch/secrets/sheets.json"
+
+# 2. DNS: zone generation and the managed NSD.
+dns:
+  zone: "example.internal"
+  zones:
+    primary: "ns1.example.net"
+    mailbox: "hostmaster.example.internal"
+    nameservers: ["ns1.example.net"]
+    reverse_zones: ["2.0.192.in-addr.arpa"]
+    ttl: 300
+    # serial: 1  # Only for an individual dns sync before NSD serves a managed generation.
+    refresh: 3600
+    retry: 600
+    expire: 604800
+    negative_ttl: 300
+  nsd:
+    config_file: "/etc/nsd/nsd.conf"
+    include_file: "/etc/nsd/certpouch-zones.conf"
+    stage_dir: "/var/lib/certpouch/dns-staging"
+    zone_dir: "/var/lib/certpouch/nsd-zones"
+    dns_address: "127.0.0.1:53"
+
+# 3. Certificates: the existing CA, storage, and which names to issue.
+certificates:
+  issuer:
+    certificate_file: "/etc/certpouch/ca/issuer.pem"
+    # Required only on the host that signs (pipeline, cert renew).
+    private_key_file: "/etc/certpouch/secrets/issuer.key"
+    chain_file: "/etc/certpouch/ca/chain.pem"
+  trust_ca_file: "/etc/certpouch/ca/roots.pem"
+  store_dir: "/var/lib/certpouch/certificates"
+  validity: "720h"
+  renew_before: "168h"
+  # Without targets, every inventory name and alias gets its own certificate.
+  # List targets only to manage a fixed set of names instead, for example
+  # certificates issued elsewhere and registered with cert publish:
+  # targets:
+  #   - name: "web.example.internal"
+  #     expected_dns_sans: ["web.example.internal", "portal.example.internal"]
+  #     # validity: "2160h"   # per-target override; needs issuer.private_key_file
+  #     # renew_before: "720h"
+
+# 4. Distribution: the HTTPS API that pull clients use.
+distribution:
+  listen: "192.0.2.53:8443"
+  refresh_interval: "5s"
+  tls:
+    certificate_file: "/etc/certpouch/tls/server.pem"
+    private_key_file: "/etc/certpouch/tls/server.key"
+    # Optional mTLS: require a trusted client certificate on each connection.
+    # client_ca: "/etc/certpouch/tls/client-ca.pem"
   # Optional deny-only list, reloaded every 5s by default.
   # revocation_file: "/etc/certpouch/revocations.yaml"
-  # revocation_refresh: "5s"
-  tls:
-    certificate: "/etc/certpouch/server.crt"
-    private_key: "/etc/certpouch/server.key"
-    # Optional mTLS: require a trusted certificate for each HTTPS connection.
-    # client_ca: "/etc/certpouch/client-ca.pem"
-storage:
-  certificate_dir: "/var/lib/certpouch/certificates"
-  trust_ca_file: "/etc/certpouch/issuers.pem"
-  issuer_certificate: "/etc/certpouch-issuer/intermediate.crt"
-pipeline:
-  dns:
-    # 1. 台帳の保存先と、シート上の名前・IPv4を補う既定値。
-    inventory:
-      cache_file: "/var/lib/dns-inventory/cache.json"
-      # Optional, when the cache is maintained by certpouch dns fetch:
-      # max_age: "45m"
-      fallback_prefix: "192.0.2"
-      zone: "example.internal"
-    # シート名と見出しを除いた範囲。JSONは取得ユーザーにだけ読み取りを許可する。
-    sheets:
-      spreadsheet_id: "REPLACE_WITH_SPREADSHEET_ID"
-      ranges: ["'Example inventory'!A2:G256"]
-      service_account_file: "/etc/certpouch/service-account.json"
-    # 2. 現行NSDと照合するSOA・NS・TTL。
-    zones:
-      primary: "ns1.example.net"
-      mailbox: "hostmaster.example.internal"
-      nameservers: ["ns1.example.net"]
-      ttl: 300
-      # serial: 1  # 初回の個別 dns sync 用。既存ゾーンのserialを確認して決める。
-      refresh: 3600
-      retry: 600
-      expire: 604800
-      negative_ttl: 300
-    # 3. NSDへ反映する段階で設定する。候補ディレクトリは事前に作成する。
-    deployment:
-      stage_dir: "/var/lib/certpouch/dns-staging"
-      zone_dir: "/var/lib/certpouch/nsd-zones"
-      nsd_config: "/etc/nsd/nsd.conf"
-      dns_address: "127.0.0.1:53"
-  # 4. 既存CAで発行・更新するときに設定する。
-  certificates:
-    renewal:
-      issuer_certificate: "/etc/certpouch-issuer/intermediate.crt"
-      issuer_private_key: "/etc/certpouch-issuer/intermediate.key"
-      issuer_chain: "/etc/certpouch-issuer/intermediates.pem"
-      profiles:
-        - name: "web.example.internal"
-          validity: "2160h"
-          renew_before: "720h"
-# 公開する証明書の検証条件。名前は renewal.profiles と揃える。
-certificates:
-  - name: "web.example.internal"
-    # DNS SANは既定でname。必要に応じてSANやIssuerを個別指定できる。
-clients:
-  - id: "web-server-01"
-    enabled: true
-    token_hash_file: "/etc/certpouch/credentials/web-server-01.sha256"
-    # With mTLS enabled, specify one or more lowercase SHA-256 leaf fingerprints.
-    # client_certificate_sha256: ["<64 lowercase hex digits>"]
-    # Optional. Permit this inventory host in addition to the certificate's own address.
-    # certificate_access_overrides:
-    #   web.example.internal: ["backup.pvt.example.internal"]
+  clients:
+    - id: "web-server-01"
+      enabled: true
+      token_hash_file: "/etc/certpouch/tokens/web-server-01.sha256"
+      # With mTLS, one or more lowercase SHA-256 leaf fingerprints:
+      # client_certificate_sha256: ["<64 lowercase hex digits>"]
+      # Also allow another inventory host to fetch a certificate:
+      # certificate_access_overrides:
+      #   web.example.internal: ["backup.pvt.example.internal"]

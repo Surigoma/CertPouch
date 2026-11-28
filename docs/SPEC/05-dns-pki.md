@@ -16,7 +16,7 @@ NSD登録前は、`dns diff --baseline` で生成済みスナップショット�
 
 `pipeline --config PATH` は台帳キャッシュを取得して検証済み候補を生成する。候補生成に失敗した場合も取得済みキャッシュは残る。`pipeline --apply CANDIDATE` は初期登録済みのNSD管理世代へ明示された候補を適用する。発行は同じ設定を使う `cert renew` で行う。
 
-`pipeline.dns.zones.reverse_zones` を指定すると、指定したIPv4 /24逆引きゾーンをPTRが0件でも候補に残す。指定外のゾーンが必要な場合は候補生成に失敗する。NSDへのゾーン登録は別途行う。
+`dns.zones.reverse_zones` を指定すると、指定したIPv4 /24逆引きゾーンをPTRが0件でも候補に残す。指定外のゾーンが必要な場合は候補生成に失敗する。NSDへのゾーン登録は別途行う。
 
 - Google SheetsのキャッシュとCSVを読み込む。
 - 在庫取得とゾーン生成は独立したコマンドで実行する。

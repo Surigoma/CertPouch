@@ -22,22 +22,23 @@ func TestDNSSyncRenderAndStage(t *testing.T) {
 	}
 	config := filepath.Join(base, "dns.yaml")
 	if err := os.WriteFile(config, []byte(fmt.Sprintf(`
-dns_inventory:
+inventory:
   cache_file: %q
   fallback_prefix: "192.0.2"
+dns:
   zone: example.internal
-zones:
-  primary: ns1.example.net
-  mailbox: hostmaster.example.internal
-  nameservers: [ns1.example.net]
-  ttl: 300
-  serial: 1
-  refresh: 3600
-  retry: 600
-  expire: 604800
-  negative_ttl: 300
-  static_records:
-    - {owner: "_policy.example.internal", type: "TXT", value: "policy=private; version=1"}
+  zones:
+    primary: ns1.example.net
+    mailbox: hostmaster.example.internal
+    nameservers: [ns1.example.net]
+    ttl: 300
+    serial: 1
+    refresh: 3600
+    retry: 600
+    expire: 604800
+    negative_ttl: 300
+    static_records:
+      - {owner: "_policy.example.internal", type: "TXT", value: "policy=private; version=1"}
 `, cache)), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ zones:
 			t.Fatal(err)
 		}
 		configWithoutSerial := filepath.Join(t.TempDir(), "dns.yaml")
-		if err := os.WriteFile(configWithoutSerial, bytes.Replace(raw, []byte("  serial: 1\n"), nil, 1), 0600); err != nil {
+		if err := os.WriteFile(configWithoutSerial, bytes.Replace(raw, []byte("    serial: 1\n"), nil, 1), 0600); err != nil {
 			t.Fatal(err)
 		}
 		args[1] = configWithoutSerial

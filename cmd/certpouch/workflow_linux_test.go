@@ -87,20 +87,22 @@ func TestLinuxPublicationAndPullWorkflow(t *testing.T) {
 	const noRevocations = "client_ids: []\nclient_certificate_sha256: []\n"
 	revocationFile := write("revocations.yaml", []byte(noRevocations))
 	serverConfig := write("server.yaml", []byte(fmt.Sprintf(`
-server:
+distribution:
   listen: %q
-  publication_refresh: "1s"
-  inventory_refresh: "1s"
+  refresh_interval: "1s"
   revocation_file: %q
   revocation_refresh: "1s"
-  tls: {certificate: %q, private_key: %q, client_ca: %q}
-storage: {certificate_dir: %q, trust_ca_file: %q}
-dns_inventory: {cache_file: %q, fallback_prefix: "127.0.0", zone: example.internal, max_age: "1h"}
+  tls: {certificate_file: %q, private_key_file: %q, client_ca: %q}
+  clients:
+    - {id: workflow, enabled: true, token_hash_file: %q, client_certificate_sha256: [%q]}
 certificates:
-  - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
-clients:
-  - {id: workflow, enabled: true, token_hash_file: %q, client_certificate_sha256: [%q]}
-`, addr, revocationFile, tlsCertFile, tlsKeyFile, caFile, store, caFile, cache, caFile, hashFile, clientFingerprint)))
+  store_dir: %q
+  trust_ca_file: %q
+  targets:
+    - {name: web.example.internal, expected_dns_sans: [web.example.internal], issuer_certificate: %q}
+inventory: {cache_file: %q, fallback_prefix: "127.0.0", max_age: "1h"}
+dns: {zone: example.internal}
+`, addr, revocationFile, tlsCertFile, tlsKeyFile, caFile, hashFile, clientFingerprint, store, caFile, caFile, cache)))
 	unit := "workflow.service"
 	realSystemd := os.Getenv("CERTPOUCH_TEST_SYSTEMD") == "1"
 	keycloakHome := os.Getenv("CERTPOUCH_TEST_KEYCLOAK_HOME")
