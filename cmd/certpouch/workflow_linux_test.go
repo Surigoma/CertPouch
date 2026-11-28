@@ -388,6 +388,34 @@ certificates:
 		if realSystemd && !reloadTime(t, logPath).Equal(firstReload) {
 			t.Fatal("unchanged certificate triggered a systemd reload")
 		}
+		// A certificate the server no longer offers, such as a removed alias,
+		// is reported without blocking the other certificates.
+		original, err := os.ReadFile(clientConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		absentDestination := mkdir("absent-destination")
+		absent := fmt.Sprintf("certificates:\n  - name: absent.example.internal\n    destination: %q\n    expected_dns_sans: [absent.example.internal]\n    issuer_certificate: %q\n",
+			absentDestination, caFile)
+		withAbsent := write("client-with-absent.yaml", bytes.Replace(original, []byte("certificates:\n"), []byte(absent), 1))
+		for _, preview := range []bool{true, false} {
+			output.Reset()
+			diagnostic.Reset()
+			args := []string{"--config", withAbsent}
+			if preview {
+				args = append(args, "--dry-run")
+			}
+			if code := runPull(t.Context(), args, &output, &diagnostic); code != 1 ||
+				output.String() != fmt.Sprintf("web.example.internal\tunchanged\t%s\n", first) ||
+				!strings.Contains(diagnostic.String(), `absent.example.internal: configured certificate "absent.example.internal" is absent`) ||
+				!strings.Contains(diagnostic.String(), "1 of 2 certificates failed") {
+				t.Fatalf("pull (dry-run %v) with one unavailable certificate: exit %d, stdout %q, stderr %q", preview, code, &output, &diagnostic)
+			}
+		}
+		state, err := deployment.ReadSync(filepath.Join(absentDestination, ".sync.json"))
+		if err != nil || state.LastError != "planning" {
+			t.Fatalf("failed certificate did not record its own error: %+v, %v", state, err)
+		}
 	}()
 	second := publish(secondFile, secondKeyFile)
 	inventory, err := client.NewWithCertificate(origin, "workflow", token, tlsRoots, &clientPair)

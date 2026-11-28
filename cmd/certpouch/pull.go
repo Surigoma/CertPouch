@@ -10,6 +10,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/Surigoma/CertPouch/internal/client"
@@ -33,6 +35,13 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, nil))
+	// Each certificate has its own lock, rollback and sync state, so one
+	// failure is reported and the remaining certificates are still handled.
+	failed := make(map[string]bool)
+	report := func(name string, err error) {
+		failed[name] = true
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+	}
 	if !*dryRun {
 		local, err := config.LoadLocalClient(*path)
 		if err != nil {
@@ -48,8 +57,7 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 				err = session.Close()
 			}
 			if err != nil {
-				fmt.Fprintf(stderr, "%s: %v\n", target.Name, err)
-				return 1
+				report(target.Name, err)
 			}
 		}
 	}
@@ -70,28 +78,41 @@ func runPull(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	plan, err := client.Plan(cfg.Targets, inventory, time.Now())
-	if err != nil {
-		logger.Error("pull planning failed", "client_id", cfg.ID, "operation", "pull", "result", "failed", "error_category", "planning")
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	targets := make(map[string]config.Target, len(cfg.Targets))
-	for _, target := range cfg.Targets {
-		targets[target.Name] = target
-	}
-	for _, item := range plan {
-		if !*dryRun {
-			item, err = applyTarget(ctx, remote, targets[item.Name], inventory, logger.With("client_id", cfg.ID))
-			if err != nil {
-				fmt.Fprintf(stderr, "%s: %v\n", item.Name, err)
-				return 1
+	targets := slices.Clone(cfg.Targets)
+	slices.SortFunc(targets, func(a, b config.Target) int { return strings.Compare(a.Name, b.Name) })
+	targetLogger := logger.With("client_id", cfg.ID)
+	for _, target := range targets {
+		if failed[target.Name] {
+			continue
+		}
+		if ctx.Err() != nil {
+			report(target.Name, fmt.Errorf("not processed: %w", ctx.Err()))
+			continue
+		}
+		var item client.PlannedCertificate
+		if *dryRun {
+			var plan []client.PlannedCertificate
+			plan, err = client.Plan([]config.Target{target}, inventory, time.Now())
+			if err == nil {
+				item = plan[0]
+			} else {
+				targetLogger.Error("pull planning failed", "certificate_name", target.Name, "operation", "pull", "result", "failed", "error_category", "planning")
 			}
+		} else {
+			item, err = applyTarget(ctx, remote, target, inventory, targetLogger)
+		}
+		if err != nil {
+			report(target.Name, err)
+			continue
 		}
 		if _, err := fmt.Fprintf(stdout, "%s\t%s\t%s\n", item.Name, item.Action, item.Version); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
+	}
+	if len(failed) != 0 {
+		fmt.Fprintf(stderr, "%d of %d certificates failed\n", len(failed), len(targets))
+		return 1
 	}
 	return 0
 }
