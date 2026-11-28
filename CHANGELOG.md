@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/Surigoma/CertPouch/compare/v2.0.1...v2.1.0) (2026-11-28)
+
+
+### Features
+
+* configure certificate distribution authentication ([e60336e](https://github.com/Surigoma/CertPouch/commit/e60336e3a6f715b712a9770f80151826c625b57d))
+* configure certificate distribution authentication ([790f4e3](https://github.com/Surigoma/CertPouch/commit/790f4e34096e7abb307cdec8ee56ce0c13cba62d))
+
 ## [2.0.1](https://github.com/Surigoma/CertPouch/compare/v2.0.0...v2.0.1) (2026-11-28)
 
 
